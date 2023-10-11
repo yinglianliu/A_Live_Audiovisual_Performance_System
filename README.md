@@ -13,7 +13,7 @@
  Live Camera demonstration:
  https://vimeo.com/824454835?share=copy
 
- Some other videos for the system:
+ Some other videos for the system
  Chapter Seven: https://vimeo.com/809263137?share=copy
  Silver City: https://vimeo.com/818956293?share=copy
  On the sea: https://vimeo.com/820219673?share=copy
