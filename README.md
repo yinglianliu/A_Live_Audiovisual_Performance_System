@@ -13,7 +13,8 @@
  Live Camera demonstration:
  https://vimeo.com/824454835?share=copy
 
- Some other videos for the system
+ Some other videos(unedited) for the system:
+ (Flashing light warning)
  
  Chapter Seven: https://vimeo.com/809263137?share=copy
  
