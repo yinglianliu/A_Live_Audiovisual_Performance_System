@@ -13,6 +13,6 @@
  Live Camera demonstration:
  https://vimeo.com/824454835?share=copy
 
- If you'd like to use the system, please feel free to contact me via email: yinglianliu0217@gmail.com
+ If you'd like to use the system or any suggestions, please feel free to contact me via email: yinglianliu0217@gmail.com
 
  
