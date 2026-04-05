@@ -1,0 +1,34 @@
+{
+  "network": {
+    "touchoscIP": "10.2.196.170",
+    "oscSendPort": 9100,
+    "oscReceivePort": 12000
+  },
+  "dmx": {
+    "dmxproEnabled": false,
+    "dmxproPort": "/dev/tty.usbserial-ENP08WE9",
+    "dmxproBaudrate": 115000,
+    "shutterChannel": 1,
+    "panChannel": 5,
+    "tilChannel": 7,
+    "colorChannel": 2,
+    "shutterCloseMin": 20,
+    "ledStartChannel": 43,
+    "ledEndChannel": 227
+  },
+  "audio": {
+    "range": 7,
+    "max": 100,
+    "amp": 30.0,
+    "index": 0.5,
+    "indexStep": 0.75
+  },
+  "camera": {
+    "deviceName": "Yinglian Camera",
+    "videoScale": 4
+  },
+  "lighting": {
+    "colorMin": 84,
+    "colorMax": 131
+  }
+}

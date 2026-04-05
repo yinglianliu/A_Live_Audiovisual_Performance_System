@@ -54,14 +54,23 @@ NetAddress receiveAddr;
 String[] oscAddr = {"/red","/green","/blue","/NoiseScale","/n1","/n2","/n3","/frameRate","/Easing","/diamMax","/transparency","/density",
                      "/pattern1","/pattern2","/pattern3","/pattern4","/liveCam","/patternOff","/MicSen","/redLED","/greenLED","/blueLED","/ledBar","/MiniMac",
                      "/Til","/Pan","/FrontL","/FrontR","/BackL","/BackR","/dotSizeMax","/cameraSpeed","/transparencyCam","/minimacSpeed","/ledSpeed","/til","/pan",
-                     "/tilButtonAuto","/panButtonAuto","/dim0","/dim1","/dim2","/AutoTilMin","/AutoTilMax","/AutoPanMin","/AutoPanMax","/colorMin","/colorMax","/speed"};
+                     "/tilButtonAuto","/panButtonAuto","/dim0","/dim1","/dim2","/AutoTilMin","/AutoTilMax","/AutoPanMin","/AutoPanMax","/colorMin","/colorMax","/speed","/reloadConfig"};
+
+// Config variables — loaded from config.json at startup
+String cfgTouchoscIP     = "10.2.196.170";
+int    cfgOscSendPort    = 9100;
+int    cfgOscReceivePort = 12000;
+String cfgCameraName     = "Yinglian Camera";
+int    ledStartChannel   = 43;
+int    ledEndChannel     = 227;
+boolean configError      = false;
+String  configErrorMsg   = "";
 
 DmxP512 dmxOutput;
-int universeSize=512;
-//boolean DMXPRO=true;
-boolean DMXPRO=false;
-String DMXPRO_PORT="/dev/tty.usbserial-ENP08WE9"; 
-int DMXPRO_BAUDRATE=115000;
+int universeSize = 512;
+boolean DMXPRO = false;
+String DMXPRO_PORT = "/dev/tty.usbserial-ENP08WE9";
+int DMXPRO_BAUDRATE = 115000;
 
 Minim minim;
 AudioInput myAudio;
@@ -105,7 +114,6 @@ float easing;
 float diam;
 float transparency;
 float density;
-//float easing = 0.08;
 float diff0, diff1,diffamount,diffamount3, diffamount4, 
 diffstroketr,diffRed,diffGreen,diffBlue, diffGray;
 float red2,green2,blue2,red22,green22,blue22,gray,gray2;
@@ -149,7 +157,6 @@ float resetB;
 
 float micSen;
 float micSenOSC;
-//float micSen = 0.2;
 
 float tilAutoButton,panAutoButton;
 float minimacSpeedOSC,ledSpeedOSC,minimacSpeed,ledSpeed;
@@ -186,7 +193,8 @@ PGraphics cameraV;  //call the camera
 
 void setup() {
   fullScreen(2);
-  
+  loadConfig();
+
   background(0);
   noCursor();
   pa1 = createGraphics(width,height);
@@ -198,12 +206,8 @@ void setup() {
   
   minim = new Minim(this);
   myAudio = minim.getLineIn(Minim.MONO);
-     
-  //myAudio.play();
-  
   myAudioFFT = new FFT(myAudio.bufferSize(), myAudio.sampleRate());
   myAudioFFT.linAverages(myAudioRange);
-  //myAudioFFT.window(FFT.GAUSS);
   myAudioFFT.window(FFT.NONE);
   
   //DMX
@@ -213,49 +217,26 @@ void setup() {
     dmxOutput.setupDmxPro(DMXPRO_PORT,DMXPRO_BAUDRATE);
   }
   
-     //set the light when the program runs
-  for(int i=1; i<40; i+=10){
-     dmxOutput.set(i,0); //shutter close
-     //dmxOutput.set(i,237); //lampon
-  }
-  
-  //pan
-  for(int i=5; i<40;i+=10){
-     dmxOutput.set(i,150);
-  }
-  
-  //til
-  for(int i=7; i<40;i+=10){
-     dmxOutput.set(i,180);
-  }
-  
-  //for the LED Bar
-  for(int i=43; i<228;i++) {
-     dmxOutput.set(i,0);
-  }
+  // Init moving lights: shutter closed, pan/til at default position
+  for(int i=shutter; i<shutter+40; i+=10) dmxOutput.set(i, 0);
+  for(int i=pan;     i<pan+40;     i+=10) dmxOutput.set(i, 150);
+  for(int i=til;     i<til+40;     i+=10) dmxOutput.set(i, 180);
+
+  // Init LED bars off
+  for(int i=ledStartChannel; i<=ledEndChannel; i++) dmxOutput.set(i, 0);
   
   noFill();
   stroke(255);
   strokeCap(CORNER);
-  //noCursor();
 
-  //set send OSC port
-   oscP5 = new OscP5(this,9100);
-   
-   /*set OSC receive port and ip address
-     set the receive port to 12000, the ip address will be the ip address for the control device,
-     if using the computer to run the UI, the ip address will be the computer ip,
-     if using iPad, the ip will be the iPad ip
-   */
-   receiveAddr = new NetAddress("10.2.196.170", 12000); // set to TouchOSC device IP
+  // OSC — ports and IP loaded from config.json
+  oscP5 = new OscP5(this, cfgOscSendPort);
+  receiveAddr = new NetAddress(cfgTouchoscIP, cfgOscReceivePort);
 
-   
-// Initialize columns and rows
+  // Camera — device name loaded from config.json
   cols = width / videoScale;
   rows = height / videoScale;
-  // Construct the Capture object
-  video = new Capture(this, cols, rows);
-  video = new Capture(this, "Yinglian Camera");
+  video = new Capture(this, cfgCameraName);
   video.start();
   
 }
@@ -411,7 +392,16 @@ void draw() {
        
      }
      
-     //Using the buttions in TouchOSC to select which band in FFT array will be used as a trigger to drive the dimmer or visuals//////         
+     // Show config error on screen if config.json failed to load
+     if(configError) {
+       fill(255, 0, 0);
+       textSize(28);
+       textAlign(CENTER, CENTER);
+       text(configErrorMsg, width/2, height/2);
+       noFill();
+     }
+
+     //Using the buttions in TouchOSC to select which band in FFT array will be used as a trigger to drive the dimmer or visuals//////
      if(dim0Button == 1 && dim1Button == 0 && dim2Button == 0) {
        dim = 1;
      }else if(dim1Button == 1 && dim0Button == 0 && dim2Button == 0) {
@@ -589,6 +579,14 @@ void oscEvent(OscMessage theOscMessage) {
     case "/speed": //fader speed in touchOSC
       speedOSC = theOscMessage.get(0).floatValue();
       if(debug) println("Pattern speed: " + speed);
+      break;
+
+    case "/reloadConfig": //button reloadConfig in touchOSC
+      if(theOscMessage.get(0).floatValue() == 1) {
+        loadConfig();
+        // Note: network/camera/FFT changes require a restart to take effect
+        if(debug) println("Config reloaded.");
+      }
       break;
 
     default:
