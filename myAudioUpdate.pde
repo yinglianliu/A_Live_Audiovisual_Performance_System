@@ -6,6 +6,4 @@ void myAudioDataUpdate() {
       myAudioIndexAmp += myAudioIndexStep;
   }
       myAudioIndexAmp = myAudioIndex;
-      println(myAudioData);
-  
 }
