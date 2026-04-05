@@ -1001,12 +1001,12 @@ async function startMic() {
   try {
     const deviceId = $('audio-device-select').value;
     const audioConstraints = {
-      deviceId:          deviceId ? { exact: deviceId } : undefined,
-      echoCancellation:  false,   // MUST be off — otherwise browser cancels music as "echo"
-      autoGainControl:   false,   // off — we want raw levels, not normalised voice
-      noiseSuppression:  false,   // off — music is not noise
+      echoCancellation:  false,
+      autoGainControl:   false,
+      noiseSuppression:  false,
       channelCount:      { ideal: 2 },
     };
+    if (deviceId) audioConstraints.deviceId = { exact: deviceId };
     micStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
     audioCtx  = new AudioContext();
     await audioCtx.resume();                 // Chrome/Safari may start suspended
@@ -1092,29 +1092,46 @@ $('btn-mic').addEventListener('click', () => {
   }
 });
 
-function updateAudioFromMic() {
-  analyser.getByteFrequencyData(fftBuffer);
-  const binHz = audioCtx.sampleRate / analyser.fftSize;
+// Float buffer — avoids minDecibels/maxDecibels byte-mapping entirely
+let floatFFTBuffer = null;
+let tdDebugTimer   = 0;
 
-  let rawMax = 0;
+function updateAudioFromMic() {
+  if (!floatFFTBuffer) floatFFTBuffer = new Float32Array(analyser.frequencyBinCount);
+  analyser.getFloatFrequencyData(floatFFTBuffer);  // values in dBFS (-Infinity … 0)
+
+  const binHz = audioCtx.sampleRate / analyser.fftSize;
+  let peakDb  = -Infinity;
+
   for (let i = 0; i < 7; i++) {
     const [fLo, fHi] = BAND_RANGES[i];
-    const bLo  = Math.max(0, Math.floor(fLo  / binHz));
-    const bHi  = Math.min(fftBuffer.length - 1, Math.ceil(fHi / binHz));
-    let sum = 0;
+    const bLo = Math.max(0, Math.floor(fLo / binHz));
+    const bHi = Math.min(floatFFTBuffer.length - 1, Math.ceil(fHi / binHz));
+    let bandMax = -Infinity;
     for (let b = bLo; b <= bHi; b++) {
-      sum += fftBuffer[b];
-      if (fftBuffer[b] > rawMax) rawMax = fftBuffer[b];
+      if (floatFFTBuffer[b] > bandMax) bandMax = floatFFTBuffer[b];
+      if (floatFFTBuffer[b] > peakDb)  peakDb  = floatFFTBuffer[b];
     }
-    const avg = bHi >= bLo ? sum / (bHi - bLo + 1) : 0;
-    audioData[i] = clamp(avg / 255 * 140, 0, 100);
+    // Map -80 dBFS → 0,  -10 dBFS → 100  (generous range for music)
+    audioData[i] = bandMax === -Infinity ? 0 : clamp(map(bandMax, -80, -10, 0, 100), 0, 100);
   }
 
-  // Update signal level indicator (shows raw FFT peak 0-255)
-  const sigPct = (rawMax / 255 * 100).toFixed(0);
-  $('signal-bar').style.width  = sigPct + '%';
-  $('signal-val').textContent  = rawMax;
-  $('signal-bar').style.background = rawMax < 10 ? 'var(--danger)' : 'var(--active)';
+  // Signal bar: show peak dBFS
+  const finite = isFinite(peakDb);
+  const sigPct = finite ? clamp(map(peakDb, -80, -10, 0, 100), 0, 100) : 0;
+  $('signal-bar').style.width      = sigPct + '%';
+  $('signal-val').textContent      = finite ? peakDb.toFixed(0) + 'dB' : '-∞';
+  $('signal-bar').style.background = sigPct < 3 ? 'var(--danger)' : 'var(--active)';
+
+  // Time-domain debug: logs every 2 s so we can see if waveform has ANY energy
+  tdDebugTimer++;
+  if (tdDebugTimer % 120 === 1) {
+    const td = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(td);
+    let maxDev = 0;
+    for (let v of td) { const d = Math.abs(v - 128); if (d > maxDev) maxDev = d; }
+    console.log('[Mic] time-domain maxDev:', maxDev, '(0=silence)  peakFFT:', finite ? peakDb.toFixed(1)+'dB' : '-∞');
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════
