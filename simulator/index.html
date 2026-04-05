@@ -824,6 +824,32 @@
             <button class="osc-btn" id="btn-debug">Debug: OFF</button>
           </div>
 
+          <div class="section-title" style="margin-top:6px;">How to Use</div>
+          <div style="font-size:10px; color:var(--text-dim); line-height:1.65; padding:8px; background:#0d0d0d; border:1px solid #2a2a2a; border-radius:var(--radius);">
+
+            <strong style="color:var(--text-label);">TAP TEMPO</strong><br>
+            连续点击 TAP 4–8 次，系统会对最近 8 次间隔取平均值计算 BPM。<br>
+            点击越均匀，BPM 越准确。<br><br>
+
+            <strong style="color:var(--text-label);">BPM SYNC</strong><br>
+            开启后，MiniMac 移动速度和 LED 速度会锁定到当前 BPM。<br>
+            灯光动作与节拍同步，演出时节奏感更强。<br><br>
+
+            <strong style="color:var(--text-label);">CUE SLOTS（1–8）</strong><br>
+            每个 Slot 可以保存一套完整的场景参数（图案、颜色、灯光、速度等）。<br>
+            <span style="color:var(--accent);">工作流程：</span><br>
+            ① 在演出前调好每个场景 → 选对应 Slot → Save Cue<br>
+            ② 演出中：选 Slot → Load Cue，场景瞬间切换<br>
+            ③ 切换速度由 Easing 滑块控制<br><br>
+
+            <strong style="color:var(--text-label);">建议场景分配</strong><br>
+            1 → 开场低能量<br>
+            2–4 → 中等强度变化<br>
+            5–7 → 高能量 Drop<br>
+            8 → Blackout / 结束
+
+          </div>
+
         </div><!-- /tab-bpm -->
 
       </div><!-- /tab-content -->
@@ -1544,6 +1570,23 @@ let minimacHue    = 0;                          // colour-wheel hue accumulator 
 let beatFlash     = 0;                          // 0–1, decays per frame
 let lastBeatTime  = -Infinity;                  // wall-clock seconds of last BPM beat
 
+// ── Audio smoothing (attack fast / release slow) ─────────────────────
+// Prevents sudden peaks from causing jarring visual jumps.
+// Rise: responds quickly to beats. Fall: decays slowly for comfort.
+const smoothedAudio = new Array(7).fill(30);
+const SMOOTH_ATTACK  = 0.28;   // ~3 frames to reach a new peak
+const SMOOTH_RELEASE = 0.06;   // ~16 frames to decay — slow, smooth tail
+
+function updateSmoothedAudio() {
+  for (let i = 0; i < 7; i++) {
+    const rate = audioData[i] > smoothedAudio[i] ? SMOOTH_ATTACK : SMOOTH_RELEASE;
+    smoothedAudio[i] += (audioData[i] - smoothedAudio[i]) * rate;
+  }
+}
+
+// ── Smoothed radii — persist so size can't jump faster than RADIUS_EASE ─
+let smoothOuterR = 100, smoothInnerR = 50;
+
 // ════════════════════════════════════════════════════════════════════
 // CANVAS RENDERING
 // ════════════════════════════════════════════════════════════════════
@@ -1559,14 +1602,16 @@ function drawCanvas() {
   n3off   += d.n3offMax;
   patAngle += d.speed;
 
-  // ── Audio-reactive values ─────────────────────────────────────────
-  const dimVal  = audioData[s.dim]                         / 100;
-  const dimVal1 = audioData[Math.min(s.dim + 1, 6)]       / 100;
-  const aR      = audioData[1] / 100;
-  const aG      = audioData[3] / 100;
-  const aB      = audioData[2] / 100;
+  // ── Audio-reactive values (use smoothedAudio, not raw audioData) ────
+  // smoothedAudio rises fast on beats but decays slowly → no jarring jumps
+  const dimVal  = smoothedAudio[s.dim]                   / 100;
+  const dimVal1 = smoothedAudio[Math.min(s.dim + 1, 6)] / 100;
+  const aR      = smoothedAudio[1] / 100;
+  const aG      = smoothedAudio[3] / 100;
+  const aB      = smoothedAudio[2] / 100;
 
-  // ── Ease RGB colours toward audio targets ─────────────────────────
+  // ── Ease RGB colours (two-stage: smoothedAudio → easing → color) ────
+  // Double smoothing keeps colour transitions fluid even on loud transients
   colorR += (aR * 255 - colorR) * d.easing;
   colorG += (aG * 255 - colorG) * d.easing;
   colorB += (aB * 255 - colorB) * d.easing;
@@ -1576,8 +1621,14 @@ function drawCanvas() {
   const cb = Math.round(colorB * s.blueOSC);
   const al = d.transparency / 255;
 
-  const outerR  = Math.max(8, map(dimVal,  0, 1, 11, d.diam));
-  const innerR  = Math.max(4, map(dimVal1, 0, 1, 5,  d.diam * 0.5));
+  // ── Smooth radii — ease toward audio target, rate tied to easing OSC ─
+  const RADIUS_EASE = clamp(d.easing * 1.4, 0.04, 0.18);
+  const targetOuterR = Math.max(8, map(dimVal,  0, 1, 11, d.diam));
+  const targetInnerR = Math.max(4, map(dimVal1, 0, 1, 5,  d.diam * 0.5));
+  smoothOuterR += (targetOuterR - smoothOuterR) * RADIUS_EASE;
+  smoothInnerR += (targetInnerR - smoothInnerR) * RADIUS_EASE;
+  const outerR  = smoothOuterR;
+  const innerR  = smoothInnerR;
   const density = Math.round(d.density);
 
   // ── Idle ──────────────────────────────────────────────────────────
@@ -1764,8 +1815,8 @@ function updateBPMBeat(t) {
     lastBeatTime += Math.floor((t - lastBeatTime) / beatInterval) * beatInterval;
     beatFlash = 1.0;
   }
-  // Decay beat flash (~12 fps half-life feels snappy)
-  beatFlash *= 0.80;
+  // Decay: slower than before — softer, more "breath-like" fall
+  beatFlash *= 0.88;
   if (beatFlash < 0.005) beatFlash = 0;
 
   $('info-bpm').textContent = Math.round(state.bpm);
@@ -1775,7 +1826,7 @@ function updateBPMBeat(t) {
 // STEP 4 — ENHANCED DMX STRIP
 // ════════════════════════════════════════════════════════════════════
 function updateDMXStrip() {
-  const shutterVal = clamp(audioData[state.dim] / 100, 0, 1);
+  const shutterVal = clamp(smoothedAudio[state.dim] / 100, 0, 1);
 
   // ── Advance colour-wheel hue ─────────────────────────────────────
   minimacHue = (minimacHue + 1 / (derived.minimacSpeed || 15)) % 1;
@@ -1860,7 +1911,7 @@ function drawPTCanvas() {
 
   // 4 fixture dots — same pan, slightly spread tilt offsets to distinguish
   const hue     = minimacHue * 360;
-  const brightness = state.MiniMac ? (18 + (audioData[state.dim]/100) * 44) : 14;
+  const brightness = state.MiniMac ? (18 + (smoothedAudio[state.dim]/100) * 44) : 14;
   const col     = state.MiniMac
     ? `hsl(${hue},78%,${brightness}%)`
     : '#2a2a2a';
@@ -1903,6 +1954,7 @@ function loop(ts) {
   }
 
   updateAudio(t);
+  updateSmoothedAudio();  // attack/release envelope on raw audio → smoothedAudio[]
   updateDerived();
   updateBPMBeat(t);       // beat detection → beatFlash, header BPM
   updateAutoPanTil();     // sinusoidal pan/tilt sweep when auto is on
