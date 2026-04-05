@@ -1010,15 +1010,31 @@ async function startMic() {
     analyser  = audioCtx.createAnalyser();
     analyser.fftSize               = 2048;
     analyser.smoothingTimeConstant = 0.6;
-    analyser.minDecibels           = -90;   // more sensitive than default -100/-30
+    analyser.minDecibels           = -90;
     analyser.maxDecibels           = -10;
     src.connect(analyser);
+
+    // Safari REQUIRES the graph to reach audioCtx.destination to process audio.
+    // Use a silent GainNode (gain=0) to avoid mic feedback through speakers.
+    const silentGain = audioCtx.createGain();
+    silentGain.gain.value = 0;
+    analyser.connect(silentGain);
+    silentGain.connect(audioCtx.destination);
+
     fftBuffer = new Uint8Array(analyser.frequencyBinCount);
+
+    // Diagnostic: log audio track info to console
+    const track = micStream.getAudioTracks()[0];
+    console.log('[Mic] AudioContext state:', audioCtx.state);
+    console.log('[Mic] Track label:', track?.label);
+    console.log('[Mic] Track enabled:', track?.enabled, '| muted:', track?.muted);
+    console.log('[Mic] Track settings:', track?.getSettings?.());
+    console.log('[Mic] FFT bins:', analyser.frequencyBinCount, '| binHz:', (audioCtx.sampleRate / analyser.fftSize).toFixed(1));
     micActive = true;
     $('btn-mic').textContent = 'MIC On';
     $('btn-mic').classList.add('active');
     const devLabel = $('audio-device-select').selectedOptions[0]?.textContent || 'microphone';
-    $('mic-status').textContent = devLabel;
+    $('mic-status').textContent = devLabel + ' [ctx:' + audioCtx.state + ']';
     $('mic-status').style.color = 'var(--active)';
     $('fft-title').textContent  = 'FFT Bands (Live)';
   } catch (err) {
