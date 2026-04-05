@@ -75,7 +75,6 @@ int DMXPRO_BAUDRATE = 115000;
 Minim minim;
 AudioInput myAudio;
 FFT myAudioFFT;
-//AudioPlayer myAudio;
 
 
 int myAudioRange = 7;
@@ -138,12 +137,8 @@ float redLEDOSC,greenLEDOSC,blueLEDOSC;
 float redOSC;
 float greenOSC;
 float blueOSC;
-float pattern1Button;
-float pattern2Button;
-float pattern3Button;
-float pattern4Button;
-float liveCamButton;
-float patternOffButton;
+// 0=idle, 1=pattern1, 2=pattern2, 3=pattern3, 4=pattern4, 5=liveCam, 6=off(blackout)
+int activePattern = 0;
 float MiniMac;
 float ledButton;
 float tilOSC;
@@ -162,7 +157,9 @@ float tilAutoButton,panAutoButton;
 float minimacSpeedOSC,ledSpeedOSC,minimacSpeed,ledSpeed;
 
 /////////////////////////////////////for camera//////////////////////////////////////////////////////
-int videoScale =4;
+boolean cameraAvailable = false;
+boolean dmxAvailable    = false;
+int videoScale = 4;
 int cols, rows;
 Capture video;
 int x,y,loc;
@@ -210,20 +207,18 @@ void setup() {
   myAudioFFT.linAverages(myAudioRange);
   myAudioFFT.window(FFT.NONE);
   
-  //DMX
-  dmxOutput=new DmxP512(this,universeSize,true);
-  
-  if(DMXPRO){
-    dmxOutput.setupDmxPro(DMXPRO_PORT,DMXPRO_BAUDRATE);
+  // DMX — wrapped in try/catch so sketch runs without hardware connected
+  try {
+    dmxOutput = new DmxP512(this, universeSize, true);
+    if(DMXPRO) dmxOutput.setupDmxPro(DMXPRO_PORT, DMXPRO_BAUDRATE);
+    for(int i=shutter; i<shutter+40; i+=10) dmxOutput.set(i, 0);
+    for(int i=pan;     i<pan+40;     i+=10) dmxOutput.set(i, 150);
+    for(int i=til;     i<til+40;     i+=10) dmxOutput.set(i, 180);
+    for(int i=ledStartChannel; i<=ledEndChannel; i++) dmxOutput.set(i, 0);
+    dmxAvailable = true;
+  } catch(Exception e) {
+    println("DMX interface not available: " + e.getMessage());
   }
-  
-  // Init moving lights: shutter closed, pan/til at default position
-  for(int i=shutter; i<shutter+40; i+=10) dmxOutput.set(i, 0);
-  for(int i=pan;     i<pan+40;     i+=10) dmxOutput.set(i, 150);
-  for(int i=til;     i<til+40;     i+=10) dmxOutput.set(i, 180);
-
-  // Init LED bars off
-  for(int i=ledStartChannel; i<=ledEndChannel; i++) dmxOutput.set(i, 0);
   
   noFill();
   stroke(255);
@@ -233,16 +228,21 @@ void setup() {
   oscP5 = new OscP5(this, cfgOscSendPort);
   receiveAddr = new NetAddress(cfgTouchoscIP, cfgOscReceivePort);
 
-  // Camera — device name loaded from config.json
+  // Camera — wrapped in try/catch so sketch runs without camera connected
   cols = width / videoScale;
   rows = height / videoScale;
-  video = new Capture(this, cfgCameraName);
-  video.start();
+  try {
+    video = new Capture(this, cfgCameraName);
+    video.start();
+    cameraAvailable = true;
+  } catch(Exception e) {
+    println("Camera not available: " + cfgCameraName);
+  }
   
 }
 
 void captureEvent(Capture video) {
-  video.read();
+  if(cameraAvailable) video.read();
 }
 
 void draw() {
@@ -306,82 +306,58 @@ void draw() {
        }
        
 
-////////////////Using the TouchOSC Buttons to Switch the patterns//////////////////            
-       if (pattern1Button ==1
-           && pattern2Button ==0 
-           && pattern3Button ==0 
-           && pattern4Button ==0
-           && patternOffButton ==0){
-             if(frameCount % frameR == 0){
-                moirePattern();
-            }
-                image(pa1,0,0);
-       } 
-     
-       if (pattern2Button == 1 
-           && pattern4Button == 0 
-           && pattern3Button == 0 
-           && pattern1Button == 0
-           && patternOffButton == 0){
-             pattern2();
-             image(pa2,0,0);
-       } 
-     
-     if(pattern3Button == 1 
-        && pattern4Button == 0 
-        && pattern2Button == 0 
-        && pattern1Button == 0
-        && patternOffButton == 0) {
-          pattern3();
-          image(pa3,0,0);
-       } 
-       
-     if(pattern4Button == 1 
-        && pattern3Button == 0 
-        && pattern2Button == 0 
-        && pattern1Button == 0
-        && patternOffButton == 0) {   
-          pattern4();
-          image(pa4,0,0);
-       } 
-       
-      if(liveCamButton == 1 
-        && pattern3Button == 0 
-        && pattern2Button == 0 
-        && pattern1Button == 0
-        && patternOffButton == 0) {   
-         liveCam();
-         image(cameraV,0,0);
-       } 
-       
-      if(patternOffButton == 1 ) {   
-          paOff.beginDraw();
-          //clear();
-          paOff.background(0);
-          //fill(0);
-          //rect(0,0,paOff.width,paOff.height);
-          paOff.endDraw();
-          image(paOff,0,0);
-       } 
-       
-     if(MiniMac == 1 ) { 
-       if(frameCount % minimacSpeed == 0){
-        setLight();
+////////////////Pattern selection — single activePattern state machine//////////////////
+     switch(activePattern) {
+       case 1:
+         if(frameCount % frameR == 0) moirePattern();
+         image(pa1, 0, 0);
+         break;
+       case 2:
+         pattern2();
+         image(pa2, 0, 0);
+         break;
+       case 3:
+         pattern3();
+         image(pa3, 0, 0);
+         break;
+       case 4:
+         pattern4();
+         image(pa4, 0, 0);
+         break;
+       case 5: // live camera
+         if(cameraAvailable) {
+           liveCam();
+           image(cameraV, 0, 0);
+         } else {
+           background(0);
+           fill(255, 80, 80);
+           textSize(24);
+           textAlign(CENTER, CENTER);
+           text("Camera not available: " + cfgCameraName, width/2, height/2);
+           noFill();
          }
-         
-       }else {
-        setBlackout();
+         break;
+       case 6: // blackout
+         paOff.beginDraw();
+         paOff.background(0);
+         paOff.endDraw();
+         image(paOff, 0, 0);
+         break;
+       // case 0 (idle): nothing drawn, last frame persists
+     }
+
+     if(dmxAvailable) {
+       if(MiniMac == 1) {
+         if(frameCount % minimacSpeed == 0) setLight();
+       } else {
+         setBlackout();
        }
-       
-     if(ledButton == 1 ) { 
-       
-       if(frameCount % ledSpeed == 0) {
-        setLEDs();
-         }
-         
-      }else {
-        setLEDOff ();
+       if(ledButton == 1) {
+         if(frameCount % ledSpeed == 0) setLEDs();
+       } else {
+         setLEDOff();
        }
+     }
      //////If the Reset button in TouchOSC is pressed(momentary),set all the value back to 0//////
      if(resetB == 1) {
        for(int i=0; i<oscAddr.length;i++){
@@ -392,12 +368,20 @@ void draw() {
        
      }
      
-     // Show config error on screen if config.json failed to load
-     if(configError) {
-       fill(255, 0, 0);
-       textSize(28);
-       textAlign(CENTER, CENTER);
-       text(configErrorMsg, width/2, height/2);
+     // On-screen status warnings
+     if(configError || !dmxAvailable) {
+       textSize(20);
+       textAlign(LEFT, TOP);
+       int warningY = 20;
+       if(configError) {
+         fill(255, 60, 60);
+         text(configErrorMsg, 20, warningY);
+         warningY += 30;
+       }
+       if(!dmxAvailable) {
+         fill(255, 160, 0);
+         text("DMX interface not connected", 20, warningY);
+       }
        noFill();
      }
 
@@ -590,42 +574,35 @@ void oscEvent(OscMessage theOscMessage) {
       break;
 
     default:
-      println("No type tags!");
+      if(debug) println("Unhandled OSC: " + theOscMessage.addrPattern());
       break;
       
   }
 
-  // Method 2: Using if statements // checkAddrPattern returns a boolean
-  
-  //button pattern1 in TouchOSC
-  if(theOscMessage.checkAddrPattern("/pattern1") == true){
-    pattern1Button = theOscMessage.get(0).floatValue();
-    if(debug && pattern1Button == 1) println("pattern1 is on.");
+  // Pattern selection — updates single activePattern state
+  if(theOscMessage.checkAddrPattern("/pattern1") && theOscMessage.get(0).floatValue() == 1) {
+    activePattern = 1;
+    if(debug) println("activePattern = 1");
   }
-
-  if(theOscMessage.checkAddrPattern("/pattern2") == true){
-    pattern2Button = theOscMessage.get(0).floatValue();
-    if(debug && pattern2Button == 1) println("pattern2 is on.");
+  if(theOscMessage.checkAddrPattern("/pattern2") && theOscMessage.get(0).floatValue() == 1) {
+    activePattern = 2;
+    if(debug) println("activePattern = 2");
   }
-
-  if(theOscMessage.checkAddrPattern("/pattern3") == true){
-    pattern3Button = theOscMessage.get(0).floatValue();
-    if(debug && pattern3Button == 1) println("pattern3 is on.");
+  if(theOscMessage.checkAddrPattern("/pattern3") && theOscMessage.get(0).floatValue() == 1) {
+    activePattern = 3;
+    if(debug) println("activePattern = 3");
   }
-
-  if(theOscMessage.checkAddrPattern("/pattern4") == true){
-    pattern4Button = theOscMessage.get(0).floatValue();
-    if(debug && pattern4Button == 1) println("pattern4 is on.");
+  if(theOscMessage.checkAddrPattern("/pattern4") && theOscMessage.get(0).floatValue() == 1) {
+    activePattern = 4;
+    if(debug) println("activePattern = 4");
   }
-
-  if(theOscMessage.checkAddrPattern("/liveCam") == true){
-    liveCamButton = theOscMessage.get(0).floatValue();
-    if(debug && liveCamButton == 1) println("Live Camera is on.");
+  if(theOscMessage.checkAddrPattern("/liveCam") && theOscMessage.get(0).floatValue() == 1) {
+    activePattern = 5;
+    if(debug) println("activePattern = 5 (liveCam)");
   }
-
-  if(theOscMessage.checkAddrPattern("/patternOff") == true){
-    patternOffButton = theOscMessage.get(0).floatValue();
-    if(debug && patternOffButton == 1) println("pattern is off.");
+  if(theOscMessage.checkAddrPattern("/patternOff") && theOscMessage.get(0).floatValue() == 1) {
+    activePattern = 6;
+    if(debug) println("activePattern = 6 (off)");
   }
 
   if(theOscMessage.checkAddrPattern("/MiniMac") == true){
