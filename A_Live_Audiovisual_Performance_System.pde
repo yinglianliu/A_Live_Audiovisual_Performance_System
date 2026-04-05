@@ -44,17 +44,22 @@ import ddf.minim.ugens.*;
 import processing.net.*;
 import oscP5.*;
 import netP5.*;
+import java.net.InetAddress;
 
 import processing.video.*;
 
 OscP5 oscP5;
 OscMessage theMessage;
 NetAddress receiveAddr;
-//make a array to store the OSC addresses of faders and buttons, TouchOSC be able to receive the message from Processing///////
 String[] oscAddr = {"/red","/green","/blue","/NoiseScale","/n1","/n2","/n3","/frameRate","/Easing","/diamMax","/transparency","/density",
                      "/pattern1","/pattern2","/pattern3","/pattern4","/liveCam","/patternOff","/MicSen","/redLED","/greenLED","/blueLED","/ledBar","/MiniMac",
                      "/Til","/Pan","/FrontL","/FrontR","/BackL","/BackR","/dotSizeMax","/cameraSpeed","/transparencyCam","/minimacSpeed","/ledSpeed","/til","/pan",
-                     "/tilButtonAuto","/panButtonAuto","/dim0","/dim1","/dim2","/AutoTilMin","/AutoTilMax","/AutoPanMin","/AutoPanMax","/colorMin","/colorMax","/speed","/reloadConfig"};
+                     "/tilButtonAuto","/panButtonAuto","/dim0","/dim1","/dim2","/AutoTilMin","/AutoTilMax","/AutoPanMin","/AutoPanMax","/colorMin","/colorMax",
+                     "/speed","/reloadConfig","/tap","/bpmSync","/saveCue","/loadCue","/cueSlot"};
+
+// IP display — shown on screen for 8 seconds at startup
+String localIP       = "unknown";
+boolean showIPOverlay = true;
 
 // Config variables — loaded from config.json at startup
 String cfgTouchoscIP     = "10.2.196.170";
@@ -187,6 +192,13 @@ void setup() {
   fullScreen(2);
   loadConfig();
 
+  // Detect local IP so it can be shown on screen at startup
+  try {
+    localIP = InetAddress.getLocalHost().getHostAddress();
+  } catch(Exception e) {
+    localIP = "?";
+  }
+
   background(0);
   noCursor();
   pa1 = createGraphics(width,height);
@@ -265,6 +277,9 @@ void draw() {
     
     minimacSpeed = int(floor(map(minimacSpeedOSC,0.0,1.0,31,2)));
     ledSpeed = int(floor(map(ledSpeedOSC,0.0,1.0,31,2)));
+
+    // BPM sync overrides the fader-based speed when enabled
+    if(bpmSyncEnabled) applyBPMSync();
     
 ////////////Using fader to select color in TouchOSC(But need to know the range number!!!)///
     colorMin = int(floor(map(colorMinOSC,0,1,24,150)));
@@ -363,6 +378,35 @@ void draw() {
        
      }
      
+     // Startup IP overlay — shown for 8 seconds so you can check/update config.json
+     if(showIPOverlay) {
+       if(millis() < 8000) {
+         fill(0, 200);
+         noStroke();
+         rect(width/2 - 280, height/2 - 50, 560, 90, 10);
+         fill(255);
+         textSize(18);
+         textAlign(CENTER, CENTER);
+         text("Processing IP: " + localIP + "  (OSC send port: " + cfgOscSendPort + ")", width/2, height/2 - 18);
+         text("TouchOSC IP in config.json: " + cfgTouchoscIP, width/2, height/2 + 10);
+         textSize(13);
+         fill(180);
+         text("This message disappears after 8 seconds", width/2, height/2 + 34);
+         noFill();
+       } else {
+         showIPOverlay = false;
+       }
+     }
+
+     // BPM display (top-right corner when bpmSync is active)
+     if(bpmSyncEnabled) {
+       fill(0, 160, 255, 200);
+       textSize(16);
+       textAlign(RIGHT, TOP);
+       text("BPM: " + nf(bpm, 0, 1), width - 20, 20);
+       noFill();
+     }
+
      // On-screen status warnings
      if(configError || !dmxAvailable) {
        textSize(20);
@@ -560,12 +604,35 @@ void oscEvent(OscMessage theOscMessage) {
       if(debug) println("Pattern speed: " + speed);
       break;
 
-    case "/reloadConfig": //button reloadConfig in touchOSC
+    case "/reloadConfig":
       if(theOscMessage.get(0).floatValue() == 1) {
         loadConfig();
-        // Note: network/camera/FFT changes require a restart to take effect
         if(debug) println("Config reloaded.");
       }
+      break;
+
+    // ── BPM tap-tempo ────────────────────────────────────────────────────────
+    case "/tap":
+      if(theOscMessage.get(0).floatValue() == 1) recordTap();
+      break;
+
+    case "/bpmSync":
+      bpmSyncEnabled = (theOscMessage.get(0).floatValue() == 1);
+      if(debug) println("BPM sync: " + bpmSyncEnabled + "  BPM: " + nf(bpm,0,1));
+      break;
+
+    // ── Scene / cue system ───────────────────────────────────────────────────
+    case "/cueSlot":
+      cueSlot = constrain(int(theOscMessage.get(0).floatValue()), 1, 8);
+      if(debug) println("Cue slot: " + cueSlot);
+      break;
+
+    case "/saveCue":
+      if(theOscMessage.get(0).floatValue() == 1) saveCue(cueSlot);
+      break;
+
+    case "/loadCue":
+      if(theOscMessage.get(0).floatValue() == 1) loadCue(cueSlot);
       break;
 
     default:
