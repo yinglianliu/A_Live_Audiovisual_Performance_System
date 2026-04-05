@@ -97,25 +97,20 @@ int mY = 0;
 float angle = 0.0;
 float speed = 0.005;
 float speedOSC = 0.25; // default maps to speed 0.005
-float l0;
-float l1;
-float l00;
-float l11;
-float amount1;
-float amount3;
-float amount4;
-float amount11;
-float amount13;
-float amount14;
-float stroketr1;
-float stroketr11;
+float outerRadius,      innerRadius;       // current eased circle radii
+float outerRadiusTarget, innerRadiusTarget; // target circle radii
+float amount1,  amount3,  amount4;          // current eased ring counts (per pattern 2/3/4)
+float amount11, amount13, amount14;         // target ring counts
+float strokeAlpha, strokeAlphaTarget;       // stroke opacity (current / target)
 float easing;
 float diam;
 float transparency;
 float density;
-float diff0, diff1,diffamount,diffamount3, diffamount4, 
-diffstroketr,diffRed,diffGreen,diffBlue, diffGray;
-float red2,green2,blue2,red22,green22,blue22,gray,gray2;
+float diff0, diff1, diffamount, diffamount3, diffamount4,
+      diffStrokeAlpha, diffColorR, diffColorG, diffColorB, diffGray;
+float colorR, colorG, colorB;              // current eased RGB working color
+float colorRTarget, colorGTarget, colorBTarget; // target RGB color
+float gray, grayTarget;
 
 /////////////for the miniMAC ////////////////////////////////////
 //dmx address of the first light
