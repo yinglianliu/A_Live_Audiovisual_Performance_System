@@ -420,9 +420,17 @@
 
     .status-dot.off { background: var(--text-dim); }
 
+    /* ── Pan/Tilt mini-canvas ─────────────────────────────────────── */
+    #pt-canvas {
+      border: 1px solid #2a2a2a;
+      border-radius: 3px;
+      background: #080808;
+      display: block;
+    }
+
     /* ── DMX strip (bottom of canvas panel) ───────────────────────── */
     #dmx-strip {
-      height: 64px;
+      height: 78px;
       background: #111;
       border-top: 1px solid var(--panel-border);
       display: flex;
@@ -837,9 +845,11 @@
           <div class="led-bar-indicator" id="led-5"></div>
         </div>
         <div class="dmx-divider"></div>
-        <div class="dmx-section" style="flex-direction:column; align-items:flex-start; gap:3px;">
-          <span class="dmx-section-label">Pan: <strong id="dmx-pan">128</strong></span>
-          <span class="dmx-section-label">Tilt: <strong id="dmx-tilt">180</strong></span>
+        <div class="dmx-section" style="flex-direction:column; align-items:flex-start; gap:4px;">
+          <span class="dmx-section-label">
+            Pan <strong id="dmx-pan">128</strong> · Tilt <strong id="dmx-tilt">180</strong>
+          </span>
+          <canvas id="pt-canvas" width="96" height="42"></canvas>
         </div>
       </div>
     </div><!-- /canvas-panel -->
@@ -1344,6 +1354,12 @@ let n1off   = 0, n2off   = 0, n3off   = 0;   // noise offsets (moire)
 let patAngle = 0;                              // global rotation accumulator
 let colorR   = 0, colorG = 0, colorB  = 0;    // eased audio colors
 
+// Step 4 additions
+let autoPanAngle  = 0, autoTilAngle = 0;       // sinusoidal auto-sweep phases
+let minimacHue    = 0;                          // colour-wheel hue accumulator (0–1)
+let beatFlash     = 0;                          // 0–1, decays per frame
+let lastBeatTime  = -Infinity;                  // wall-clock seconds of last BPM beat
+
 // ════════════════════════════════════════════════════════════════════
 // CANVAS RENDERING
 // ════════════════════════════════════════════════════════════════════
@@ -1435,6 +1451,12 @@ function drawCanvas() {
   }
 
   ctx.globalCompositeOperation = 'source-over';
+
+  // ── BPM beat flash overlay ────────────────────────────────────────
+  if (beatFlash > 0.01) {
+    ctx.fillStyle = `rgba(255,255,255,${beatFlash * 0.13})`;
+    ctx.fillRect(0, 0, W, H);
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -1515,6 +1537,172 @@ function drawRings(cx, cy, outerR, innerR, cr, cg, cb, al, density, pattern) {
 }
 
 // ════════════════════════════════════════════════════════════════════
+// STEP 4 — AUTO PAN/TILT SWEEP
+// ════════════════════════════════════════════════════════════════════
+function updateAutoPanTil() {
+  const spd = derived.speed * 40;   // sweep speed scales with pattern speed
+
+  if (state.panAutoButton) {
+    autoPanAngle += spd;
+    const t = (Math.sin(autoPanAngle) + 1) / 2;  // 0..1
+    const pan = state.autoPanMinOSC + (state.autoPanMaxOSC - state.autoPanMinOSC) * t;
+    state.panOSC = pan;
+    const el = $('panOSC');
+    if (el) {
+      el.value = pan;
+      const lbl = $('val-panOSC');
+      if (lbl) lbl.textContent = pan.toFixed(2);
+    }
+  }
+
+  if (state.tilAutoButton) {
+    autoTilAngle += spd * 0.73;    // different phase to pan
+    const t = (Math.sin(autoTilAngle) + 1) / 2;
+    const til = state.autoTilMinOSC + (state.autoTilMaxOSC - state.autoTilMinOSC) * t;
+    state.tilOSC = til;
+    const el = $('tilOSC');
+    if (el) {
+      el.value = til;
+      const lbl = $('val-tilOSC');
+      if (lbl) lbl.textContent = til.toFixed(2);
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// STEP 4 — BPM BEAT DETECTION
+// ════════════════════════════════════════════════════════════════════
+function updateBPMBeat(t) {
+  const beatInterval = 60 / state.bpm;
+
+  if (t - lastBeatTime >= beatInterval) {
+    // Snap to the beat grid (avoids drift)
+    lastBeatTime += Math.floor((t - lastBeatTime) / beatInterval) * beatInterval;
+    beatFlash = 1.0;
+  }
+  // Decay beat flash (~12 fps half-life feels snappy)
+  beatFlash *= 0.80;
+  if (beatFlash < 0.005) beatFlash = 0;
+
+  $('info-bpm').textContent = Math.round(state.bpm);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// STEP 4 — ENHANCED DMX STRIP
+// ════════════════════════════════════════════════════════════════════
+function updateDMXStrip() {
+  const shutterVal = clamp(audioData[state.dim] / 100, 0, 1);
+
+  // ── Advance colour-wheel hue ─────────────────────────────────────
+  minimacHue = (minimacHue + 1 / (derived.minimacSpeed || 15)) % 1;
+  const hue = minimacHue * 360;
+
+  // ── Moving-head indicators ───────────────────────────────────────
+  for (let i = 0; i < 4; i++) {
+    const el = $('light-' + i);
+    if (!el) continue;
+    if (state.MiniMac) {
+      const bri = 18 + shutterVal * 44 + beatFlash * 22;
+      el.style.background  = `hsl(${hue},78%,${bri}%)`;
+      el.style.borderColor = `hsl(${hue},78%,${Math.min(90, bri + 22)}%)`;
+      el.style.color       = `hsl(${hue},78%,${Math.min(90, bri + 22)}%)`;
+      el.classList.add('on');
+    } else {
+      el.style.background  = '#111';
+      el.style.borderColor = '#333';
+      el.style.color       = 'transparent';
+      el.classList.remove('on');
+    }
+  }
+
+  // ── LED bar indicators ───────────────────────────────────────────
+  const bf = beatFlash * 35;
+  const ledR = Math.min(255, Math.round(clamp(map(audioData[1],30,100,0,255),0,255) * state.redLEDOSC)   + bf);
+  const ledG = Math.min(255, Math.round(clamp(map(audioData[3],30,100,0,255),0,255) * state.greenLEDOSC) + bf);
+  const ledB = Math.min(255, Math.round(clamp(map(audioData[2],30,100,0,255),0,255) * state.blueLEDOSC)  + bf);
+
+  for (let i = 0; i < 6; i++) {
+    const el = $('led-' + i);
+    if (!el) continue;
+    if (state.ledButton) {
+      el.style.background  = `rgb(${ledR},${ledG},${ledB})`;
+      el.style.borderColor = `rgb(${Math.min(255,ledR+30)},${Math.min(255,ledG+30)},${Math.min(255,ledB+30)})`;
+      el.style.color       = el.style.background;
+      el.classList.add('on');
+    } else {
+      el.style.background  = '#111';
+      el.style.borderColor = '#333';
+      el.style.color       = 'transparent';
+      el.classList.remove('on');
+    }
+  }
+
+  // ── Pan / Tilt numeric readout ───────────────────────────────────
+  $('dmx-pan').textContent  = Math.round(map(state.panOSC, 0,1, 151, 255));
+  $('dmx-tilt').textContent = Math.round(map(state.tilOSC, 0,1, 181, 255));
+}
+
+// ════════════════════════════════════════════════════════════════════
+// STEP 4 — PAN / TILT MINI-CANVAS (top-view fixture map)
+// ════════════════════════════════════════════════════════════════════
+const ptCanvas = $('pt-canvas');
+const ptCtx    = ptCanvas ? ptCanvas.getContext('2d') : null;
+
+function drawPTCanvas() {
+  if (!ptCtx) return;
+  const W = ptCanvas.width, H = ptCanvas.height;
+  const margin = 8;
+
+  ptCtx.fillStyle = '#080808';
+  ptCtx.fillRect(0, 0, W, H);
+
+  // Grid lines
+  ptCtx.strokeStyle = '#1e1e1e';
+  ptCtx.lineWidth = 0.5;
+  for (let i = 1; i < 4; i++) {
+    const x = W / 4 * i;
+    ptCtx.beginPath(); ptCtx.moveTo(x,0); ptCtx.lineTo(x,H); ptCtx.stroke();
+  }
+  for (let i = 1; i < 3; i++) {
+    const y = H / 3 * i;
+    ptCtx.beginPath(); ptCtx.moveTo(0,y); ptCtx.lineTo(W,y); ptCtx.stroke();
+  }
+
+  // Labels
+  ptCtx.fillStyle = '#333';
+  ptCtx.font = '7px monospace';
+  ptCtx.textAlign = 'left';
+  ptCtx.fillText('PAN →', 2, H - 2);
+
+  // 4 fixture dots — same pan, slightly spread tilt offsets to distinguish
+  const hue     = minimacHue * 360;
+  const brightness = state.MiniMac ? (18 + (audioData[state.dim]/100) * 44) : 14;
+  const col     = state.MiniMac
+    ? `hsl(${hue},78%,${brightness}%)`
+    : '#2a2a2a';
+
+  const panX  = margin + (state.panOSC)  * (W - margin * 2);
+  const tilYC = margin + (1 - state.tilOSC) * (H - margin * 2);
+
+  const offsets = [-6, -2, 2, 6]; // slight spread on tilt axis
+  for (let i = 0; i < 4; i++) {
+    const x = panX;
+    const y = clamp(tilYC + offsets[i], margin, H - margin);
+    ptCtx.beginPath();
+    ptCtx.arc(x, y, 3.5, 0, Math.PI * 2);
+    ptCtx.fillStyle = col;
+    ptCtx.fill();
+    if (state.MiniMac && beatFlash > 0.1) {
+      ptCtx.beginPath();
+      ptCtx.arc(x, y, 3.5 + beatFlash * 4, 0, Math.PI * 2);
+      ptCtx.strokeStyle = `rgba(255,255,255,${beatFlash * 0.4})`;
+      ptCtx.lineWidth = 0.8;
+      ptCtx.stroke();
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
 // MAIN LOOP
 // ════════════════════════════════════════════════════════════════════
 let frameCount = 0;
@@ -1523,19 +1711,22 @@ function loop(ts) {
   const t = ts / 1000;
   frameCount++;
 
-  updateAudio(t);
-  updateDerived();
-  drawCanvas();
-  updateAudioBars();
-  updateDMXStrip();
-  updateStatusOverlay();
-
-  // BPM sync: override light speeds
+  // BPM sync: override light speeds before derived values are consumed
   if (state.bpmSyncEnabled) {
     const fpb = Math.max(1, Math.round(60 / state.bpm * 60));
     derived.minimacSpeed = fpb;
     derived.ledSpeed     = fpb;
   }
+
+  updateAudio(t);
+  updateDerived();
+  updateBPMBeat(t);       // beat detection → beatFlash, header BPM
+  updateAutoPanTil();     // sinusoidal pan/tilt sweep when auto is on
+  drawCanvas();           // pattern render + beat-flash overlay
+  updateAudioBars();
+  updateDMXStrip();       // light indicators with hue cycle + beat boost
+  drawPTCanvas();         // pan/tilt fixture position mini-map
+  updateStatusOverlay();
 
   tickFPS();
   requestAnimationFrame(loop);
@@ -1549,6 +1740,8 @@ refreshDimButtons();
 refreshAudioBarHighlight();
 updateColorPreviews();
 updateStatusOverlay();
+$('info-bpm').textContent = Math.round(state.bpm);
+$('bpm-number').textContent = Math.round(state.bpm);
 requestAnimationFrame(loop);
 </script>
 </body>
