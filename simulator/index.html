@@ -657,6 +657,12 @@
             <button class="osc-btn" id="btn-mic">MIC Off</button>
             <span id="mic-status" style="font-size:10px; color:var(--text-dim); align-self:center; padding-left:4px;">Simulated audio</span>
           </div>
+          <div class="ctrl-row" style="margin-bottom:8px;">
+            <span class="ctrl-label" style="flex-shrink:0;">Device</span>
+            <select id="audio-device-select" style="flex:1; background:var(--ctrl-bg); color:var(--text); border:1px solid var(--ctrl-border); border-radius:var(--radius); padding:3px 6px; font-size:11px; font-family:inherit;">
+              <option value="">— default mic —</option>
+            </select>
+          </div>
 
           <div class="section-title" id="fft-title">FFT Bands (Simulated)</div>
           <div id="audio-bars">
@@ -986,7 +992,11 @@ const BAND_RANGES = [
 
 async function startMic() {
   try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    const deviceId = $('audio-device-select').value;
+    const audioConstraints = deviceId
+      ? { deviceId: { exact: deviceId } }
+      : true;
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
     audioCtx  = new AudioContext();
     const src = audioCtx.createMediaStreamSource(micStream);
     analyser  = audioCtx.createAnalyser();
@@ -997,7 +1007,8 @@ async function startMic() {
     micActive = true;
     $('btn-mic').textContent = 'MIC On';
     $('btn-mic').classList.add('active');
-    $('mic-status').textContent = 'Live microphone';
+    const devLabel = $('audio-device-select').selectedOptions[0]?.textContent || 'microphone';
+    $('mic-status').textContent = devLabel;
     $('mic-status').style.color = 'var(--active)';
     $('fft-title').textContent  = 'FFT Bands (Live)';
   } catch (err) {
@@ -1020,8 +1031,35 @@ function stopMic() {
   $('fft-title').textContent  = 'FFT Bands (Simulated)';
 }
 
+// Populate device list (requires a brief permission grant first time)
+async function refreshDeviceList() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const sel = $('audio-device-select');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">— default mic —</option>';
+    devices
+      .filter(d => d.kind === 'audioinput')
+      .forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `Input ${d.deviceId.slice(0,8)}`;
+        sel.appendChild(opt);
+      });
+    if (prev) sel.value = prev;   // restore selection if still present
+  } catch (e) { /* permissions not yet granted — list stays minimal */ }
+}
+
+// Refresh list on change (covers hot-plug)
+navigator.mediaDevices.addEventListener('devicechange', refreshDeviceList);
+refreshDeviceList();
+
 $('btn-mic').addEventListener('click', () => {
-  micActive ? stopMic() : startMic();
+  if (micActive) {
+    stopMic();
+  } else {
+    startMic().then(refreshDeviceList);  // populate labels after first grant
+  }
 });
 
 function updateAudioFromMic() {
