@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live AV System — Simulator</title>
+  <style>
+
+    /* ── Reset & root ──────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #141414;
+      --panel:        #1e1e1e;
+      --panel-border: #2e2e2e;
+      --ctrl-bg:      #2a2a2a;
+      --ctrl-border:  #3a3a3a;
+      --accent:       #e8950a;   /* orange  — faders, active pattern */
+      --active:       #3ecf60;   /* green   — toggle ON */
+      --inactive:     #3a3a3a;   /* grey    — toggle OFF */
+      --danger:       #cf3e3e;   /* red     — blackout */
+      --blue:         #3e8ecf;   /* blue    — info / BPM */
+      --text:         #d0d0d0;
+      --text-dim:     #666;
+      --text-label:   #999;
+      --radius:       6px;
+      --tab-h:        38px;
+      --header-h:     44px;
+      --ctrl-panel-w: 340px;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 12px;
+      overflow: hidden;
+    }
+
+    /* ── App shell ─────────────────────────────────────────────────── */
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    /* ── Header ────────────────────────────────────────────────────── */
+    #header {
+      height: var(--header-h);
+      background: #111;
+      border-bottom: 1px solid var(--panel-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      flex-shrink: 0;
+    }
+
+    #header h1 {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+
+    #header-info {
+      display: flex;
+      gap: 18px;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    #header-info span { color: var(--text-label); }
+    #header-info strong { color: var(--text); font-weight: 400; }
+
+    /* ── Main area ─────────────────────────────────────────────────── */
+    #main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Control panel (left) ──────────────────────────────────────── */
+    #ctrl-panel {
+      width: var(--ctrl-panel-w);
+      flex-shrink: 0;
+      background: var(--panel);
+      border-right: 1px solid var(--panel-border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Tabs ──────────────────────────────────────────────────────── */
+    #tabs {
+      display: flex;
+      height: var(--tab-h);
+      background: #161616;
+      border-bottom: 1px solid var(--panel-border);
+      flex-shrink: 0;
+    }
+
+    .tab-btn {
+      flex: 1;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-dim);
+      font-family: inherit;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .tab-btn:hover { color: var(--text); }
+
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    /* ── Tab content ───────────────────────────────────────────────── */
+    #tab-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--ctrl-border) transparent;
+    }
+
+    #tab-content::-webkit-scrollbar { width: 4px; }
+    #tab-content::-webkit-scrollbar-track { background: transparent; }
+    #tab-content::-webkit-scrollbar-thumb { background: var(--ctrl-border); border-radius: 2px; }
+
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* ── Section headers inside tabs ──────────────────────────────── */
+    .section-title {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin: 14px 0 8px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .section-title:first-child { margin-top: 2px; }
+
+    /* ── Fader control ─────────────────────────────────────────────── */
+    .ctrl-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .ctrl-label {
+      width: 90px;
+      flex-shrink: 0;
+      font-size: 10px;
+      color: var(--text-label);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .ctrl-value {
+      width: 38px;
+      flex-shrink: 0;
+      font-size: 10px;
+      color: var(--accent);
+      text-align: right;
+    }
+
+    input[type="range"] {
+      flex: 1;
+      height: 4px;
+      appearance: none;
+      -webkit-appearance: none;
+      background: var(--ctrl-bg);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      border: 2px solid #111;
+      box-shadow: 0 0 4px rgba(232,149,10,0.5);
+    }
+
+    input[type="range"]::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      border: 2px solid #111;
+    }
+
+    input[type="range"].blue-fader::-webkit-slider-thumb { background: var(--blue); box-shadow: 0 0 4px rgba(62,142,207,0.5); }
+    input[type="range"].green-fader::-webkit-slider-thumb { background: var(--active); box-shadow: 0 0 4px rgba(62,207,96,0.5); }
+    input[type="range"].red-fader::-webkit-slider-thumb { background: var(--danger); box-shadow: 0 0 4px rgba(207,62,62,0.5); }
+
+    /* ── Button grids ──────────────────────────────────────────────── */
+    .btn-grid {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .btn-grid-3 { grid-template-columns: repeat(3, 1fr); }
+    .btn-grid-2 { grid-template-columns: repeat(2, 1fr); }
+    .btn-grid-4 { grid-template-columns: repeat(4, 1fr); }
+
+    .osc-btn {
+      padding: 9px 4px;
+      border: 1px solid var(--ctrl-border);
+      border-radius: var(--radius);
+      background: var(--ctrl-bg);
+      color: var(--text-dim);
+      font-family: inherit;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.1s, color 0.1s, border-color 0.1s;
+      text-align: center;
+    }
+
+    .osc-btn:hover { border-color: #555; color: var(--text); }
+
+    .osc-btn.active {
+      background: var(--active);
+      border-color: var(--active);
+      color: #111;
+    }
+
+    .osc-btn.active-orange {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #111;
+    }
+
+    .osc-btn.active-red {
+      background: var(--danger);
+      border-color: var(--danger);
+      color: #fff;
+    }
+
+    .osc-btn.active-blue {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: #fff;
+    }
+
+    /* ── Big tap button ────────────────────────────────────────────── */
+    #tap-btn {
+      width: 100%;
+      padding: 22px;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      border-radius: var(--radius);
+      border: 2px solid var(--accent);
+      background: var(--ctrl-bg);
+      color: var(--accent);
+      cursor: pointer;
+      transition: background 0.08s, color 0.08s;
+      margin-bottom: 10px;
+    }
+
+    #tap-btn:active {
+      background: var(--accent);
+      color: #111;
+    }
+
+    /* ── BPM display ───────────────────────────────────────────────── */
+    #bpm-display {
+      text-align: center;
+      margin-bottom: 12px;
+    }
+
+    #bpm-number {
+      font-size: 48px;
+      font-weight: 700;
+      color: var(--blue);
+      line-height: 1;
+    }
+
+    #bpm-label {
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    /* ── Cue slot buttons ──────────────────────────────────────────── */
+    #cue-slots {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+
+    /* ── Audio visualizer ──────────────────────────────────────────── */
+    #audio-bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 3px;
+      height: 60px;
+      background: #111;
+      border: 1px solid var(--ctrl-border);
+      border-radius: var(--radius);
+      padding: 4px;
+      margin-bottom: 10px;
+    }
+
+    .audio-bar-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 100%;
+      gap: 2px;
+    }
+
+    .audio-bar {
+      width: 100%;
+      border-radius: 2px 2px 0 0;
+      background: var(--accent);
+      transition: height 0.05s;
+      min-height: 2px;
+    }
+
+    .audio-bar.dim-active { background: var(--active); }
+
+    .audio-bar-label {
+      font-size: 8px;
+      color: var(--text-dim);
+      flex-shrink: 0;
+    }
+
+    /* ── Color swatches (small preview) ───────────────────────────── */
+    .color-preview {
+      width: 100%;
+      height: 24px;
+      border-radius: var(--radius);
+      border: 1px solid var(--ctrl-border);
+      margin-bottom: 10px;
+    }
+
+    /* ── Canvas panel (right) ──────────────────────────────────────── */
+    #canvas-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: #0a0a0a;
+      overflow: hidden;
+    }
+
+    #canvas-wrap {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #main-canvas {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* ── Status overlay (top-left of canvas) ──────────────────────── */
+    #status-overlay {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      pointer-events: none;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(0,0,0,0.7);
+      border: 1px solid #333;
+      border-radius: 20px;
+      padding: 3px 10px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--active);
+    }
+
+    .status-dot.off { background: var(--text-dim); }
+
+    /* ── DMX strip (bottom of canvas panel) ───────────────────────── */
+    #dmx-strip {
+      height: 64px;
+      background: #111;
+      border-top: 1px solid var(--panel-border);
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 20px;
+      flex-shrink: 0;
+    }
+
+    .dmx-section {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .dmx-section-label {
+      font-size: 9px;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      writing-mode: horizontal-tb;
+      white-space: nowrap;
+    }
+
+    .light-indicator {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 2px solid #333;
+      background: #111;
+      transition: background 0.1s, box-shadow 0.1s;
+    }
+
+    .light-indicator.on {
+      box-shadow: 0 0 10px 3px currentColor;
+    }
+
+    .led-bar-indicator {
+      width: 22px;
+      height: 36px;
+      border-radius: 3px;
+      border: 1px solid #333;
+      background: #111;
+      transition: background 0.1s, box-shadow 0.1s;
+    }
+
+    .led-bar-indicator.on {
+      box-shadow: 0 0 8px 2px currentColor;
+    }
+
+    .dmx-divider {
+      width: 1px;
+      height: 40px;
+      background: var(--panel-border);
+    }
+
+    /* ── Responsive: stack on narrow screens ───────────────────────── */
+    @media (max-width: 700px) {
+      #main { flex-direction: column; }
+      #ctrl-panel { width: 100%; height: 55vh; border-right: none; border-top: 1px solid var(--panel-border); order: 2; }
+      #canvas-panel { order: 1; flex: none; height: 45vh; }
+    }
+
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Header ───────────────────────────────────────────────────── -->
+  <div id="header">
+    <h1>Live AV Performance System — Simulator</h1>
+    <div id="header-info">
+      <span>Pattern: <strong id="info-pattern">—</strong></span>
+      <span>BPM: <strong id="info-bpm">—</strong></span>
+      <span>FPS: <strong id="info-fps">—</strong></span>
+    </div>
+  </div>
+
+  <!-- ── Main ─────────────────────────────────────────────────────── -->
+  <div id="main">
+
+    <!-- ── Control panel ──────────────────────────────────────────── -->
+    <div id="ctrl-panel">
+
+      <div id="tabs">
+        <button class="tab-btn active" data-tab="pattern">Pattern</button>
+        <button class="tab-btn"        data-tab="color">Color</button>
+        <button class="tab-btn"        data-tab="audio">Audio</button>
+        <button class="tab-btn"        data-tab="lights">Lights</button>
+        <button class="tab-btn"        data-tab="bpm">BPM·Cue</button>
+      </div>
+
+      <div id="tab-content">
+
+        <!-- ── PATTERN tab ─────────────────────────────────────── -->
+        <div class="tab-pane active" id="tab-pattern">
+
+          <div class="section-title">Pattern Select</div>
+          <div class="btn-grid btn-grid-3" id="pattern-btns">
+            <button class="osc-btn" data-pattern="1">P1 Moire</button>
+            <button class="osc-btn" data-pattern="2">P2 Rings</button>
+            <button class="osc-btn" data-pattern="3">P3 Light</button>
+            <button class="osc-btn" data-pattern="4">P4 Gray</button>
+            <button class="osc-btn" data-pattern="5">Camera</button>
+            <button class="osc-btn active-red" data-pattern="6">Off</button>
+          </div>
+
+          <div class="section-title">Speed &amp; Timing</div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Speed</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.25" id="speedOSC">
+            <span class="ctrl-value" id="val-speedOSC">0.25</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Frame Rate</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="frameROSC">
+            <span class="ctrl-value" id="val-frameROSC">0.50</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Easing</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.4" id="easingOSC">
+            <span class="ctrl-value" id="val-easingOSC">0.40</span>
+          </div>
+
+          <div class="section-title">Shape</div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Diam Max</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="diamOSC">
+            <span class="ctrl-value" id="val-diamOSC">0.50</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Transparency</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.4" id="transparencyOSC">
+            <span class="ctrl-value" id="val-transparencyOSC">0.40</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Density</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="densityOSC">
+            <span class="ctrl-value" id="val-densityOSC">0.50</span>
+          </div>
+
+          <div class="section-title">Noise (Moire)</div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Noise Scale</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.4" id="noiseScaleOSC">
+            <span class="ctrl-value" id="val-noiseScaleOSC">0.40</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">N1</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="n1offOSC">
+            <span class="ctrl-value" id="val-n1offOSC">0.50</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">N2</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="n2offOSC">
+            <span class="ctrl-value" id="val-n2offOSC">0.50</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">N3</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="n3offOSC">
+            <span class="ctrl-value" id="val-n3offOSC">0.50</span>
+          </div>
+
+        </div><!-- /tab-pattern -->
+
+        <!-- ── COLOR tab ───────────────────────────────────────── -->
+        <div class="tab-pane" id="tab-color">
+
+          <div class="section-title">Visual Color</div>
+          <div id="visual-color-preview" class="color-preview"></div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Red</span>
+            <input type="range" class="red-fader" min="0" max="1" step="0.01" value="0.8" id="redOSC">
+            <span class="ctrl-value" id="val-redOSC">0.80</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Green</span>
+            <input type="range" class="green-fader" min="0" max="1" step="0.01" value="0.3" id="greenOSC">
+            <span class="ctrl-value" id="val-greenOSC">0.30</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Blue</span>
+            <input type="range" class="blue-fader" min="0" max="1" step="0.01" value="0.9" id="blueOSC">
+            <span class="ctrl-value" id="val-blueOSC">0.90</span>
+          </div>
+
+          <div class="section-title">LED Bar Color</div>
+          <div id="led-color-preview" class="color-preview"></div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Red LED</span>
+            <input type="range" class="red-fader" min="0" max="1" step="0.01" value="0.7" id="redLEDOSC">
+            <span class="ctrl-value" id="val-redLEDOSC">0.70</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Green LED</span>
+            <input type="range" class="green-fader" min="0" max="1" step="0.01" value="0.2" id="greenLEDOSC">
+            <span class="ctrl-value" id="val-greenLEDOSC">0.20</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Blue LED</span>
+            <input type="range" class="blue-fader" min="0" max="1" step="0.01" value="0.8" id="blueLEDOSC">
+            <span class="ctrl-value" id="val-blueLEDOSC">0.80</span>
+          </div>
+
+          <div class="section-title">DMX Color Wheel Range</div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Color Min</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="colorMinOSC">
+            <span class="ctrl-value" id="val-colorMinOSC">0.50</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Color Max</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.7" id="colorMaxOSC">
+            <span class="ctrl-value" id="val-colorMaxOSC">0.70</span>
+          </div>
+
+        </div><!-- /tab-color -->
+
+        <!-- ── AUDIO tab ────────────────────────────────────────── -->
+        <div class="tab-pane" id="tab-audio">
+
+          <div class="section-title">FFT Bands (Simulated)</div>
+          <div id="audio-bars">
+            <div class="audio-bar-wrap">
+              <div class="audio-bar" id="bar-0" style="height:50%"></div>
+              <span class="audio-bar-label">0</span>
+            </div>
+            <div class="audio-bar-wrap">
+              <div class="audio-bar" id="bar-1" style="height:50%"></div>
+              <span class="audio-bar-label">1</span>
+            </div>
+            <div class="audio-bar-wrap">
+              <div class="audio-bar" id="bar-2" style="height:50%"></div>
+              <span class="audio-bar-label">2</span>
+            </div>
+            <div class="audio-bar-wrap">
+              <div class="audio-bar" id="bar-3" style="height:50%"></div>
+              <span class="audio-bar-label">3</span>
+            </div>
+            <div class="audio-bar-wrap">
+              <div class="audio-bar" id="bar-4" style="height:50%"></div>
+              <span class="audio-bar-label">4</span>
+            </div>
+            <div class="audio-bar-wrap">
+              <div class="audio-bar" id="bar-5" style="height:50%"></div>
+              <span class="audio-bar-label">5</span>
+            </div>
+            <div class="audio-bar-wrap">
+              <div class="audio-bar" id="bar-6" style="height:50%"></div>
+              <span class="audio-bar-label">6</span>
+            </div>
+          </div>
+
+          <div class="ctrl-row">
+            <span class="ctrl-label">Mic Sensitivity</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="micSenOSC">
+            <span class="ctrl-value" id="val-micSenOSC">0.50</span>
+          </div>
+
+          <div class="section-title">Shutter Trigger Band (dim)</div>
+          <div class="btn-grid btn-grid-4" id="dim-btns">
+            <button class="osc-btn active-orange" data-dim="0">Band 0</button>
+            <button class="osc-btn" data-dim="1">Band 1</button>
+            <button class="osc-btn" data-dim="2">Band 2</button>
+            <button class="osc-btn" data-dim="3">Band 3</button>
+          </div>
+
+        </div><!-- /tab-audio -->
+
+        <!-- ── LIGHTS tab ───────────────────────────────────────── -->
+        <div class="tab-pane" id="tab-lights">
+
+          <div class="section-title">Enable</div>
+          <div class="btn-grid btn-grid-2">
+            <button class="osc-btn" id="btn-minimac">MiniMac</button>
+            <button class="osc-btn" id="btn-ledbar">LED Bars</button>
+          </div>
+
+          <div class="section-title">Speed</div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">MiniMac Speed</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="minimacSpeedOSC">
+            <span class="ctrl-value" id="val-minimacSpeedOSC">0.50</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">LED Speed</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="ledSpeedOSC">
+            <span class="ctrl-value" id="val-ledSpeedOSC">0.50</span>
+          </div>
+
+          <div class="section-title">Pan / Tilt</div>
+          <div class="btn-grid btn-grid-2">
+            <button class="osc-btn" id="btn-panauto">Pan Auto</button>
+            <button class="osc-btn" id="btn-tilauto">Tilt Auto</button>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Pan</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="panOSC">
+            <span class="ctrl-value" id="val-panOSC">0.50</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Tilt</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="tilOSC">
+            <span class="ctrl-value" id="val-tilOSC">0.50</span>
+          </div>
+
+          <div class="section-title">Auto Range</div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Pan Min</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.3" id="autoPanMinOSC">
+            <span class="ctrl-value" id="val-autoPanMinOSC">0.30</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Pan Max</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.7" id="autoPanMaxOSC">
+            <span class="ctrl-value" id="val-autoPanMaxOSC">0.70</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Tilt Min</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.3" id="autoTilMinOSC">
+            <span class="ctrl-value" id="val-autoTilMinOSC">0.30</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Tilt Max</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.7" id="autoTilMaxOSC">
+            <span class="ctrl-value" id="val-autoTilMaxOSC">0.70</span>
+          </div>
+
+        </div><!-- /tab-lights -->
+
+        <!-- ── BPM · CUE tab ────────────────────────────────────── -->
+        <div class="tab-pane" id="tab-bpm">
+
+          <div class="section-title">Tap Tempo</div>
+          <button id="tap-btn">TAP</button>
+
+          <div id="bpm-display">
+            <div id="bpm-number">120</div>
+            <div id="bpm-label">BPM</div>
+          </div>
+
+          <div class="btn-grid btn-grid-2">
+            <button class="osc-btn" id="btn-bpmsync">BPM Sync</button>
+            <button class="osc-btn" id="btn-reset">Reset All</button>
+          </div>
+
+          <div class="section-title">Cue Slots</div>
+          <div id="cue-slots">
+            <button class="osc-btn active-orange" data-cue="1">1</button>
+            <button class="osc-btn" data-cue="2">2</button>
+            <button class="osc-btn" data-cue="3">3</button>
+            <button class="osc-btn" data-cue="4">4</button>
+            <button class="osc-btn" data-cue="5">5</button>
+            <button class="osc-btn" data-cue="6">6</button>
+            <button class="osc-btn" data-cue="7">7</button>
+            <button class="osc-btn" data-cue="8">8</button>
+          </div>
+          <div class="btn-grid btn-grid-2">
+            <button class="osc-btn" id="btn-savecue">Save Cue</button>
+            <button class="osc-btn" id="btn-loadcue">Load Cue</button>
+          </div>
+
+          <div class="section-title">Config</div>
+          <div class="btn-grid btn-grid-2">
+            <button class="osc-btn" id="btn-reloadconfig">Reload Config</button>
+            <button class="osc-btn" id="btn-debug">Debug: OFF</button>
+          </div>
+
+        </div><!-- /tab-bpm -->
+
+      </div><!-- /tab-content -->
+    </div><!-- /ctrl-panel -->
+
+    <!-- ── Canvas panel ────────────────────────────────────────────── -->
+    <div id="canvas-panel">
+      <div id="canvas-wrap">
+        <canvas id="main-canvas"></canvas>
+
+        <div id="status-overlay">
+          <div class="status-pill">
+            <span class="status-dot off" id="dot-pattern"></span>
+            <span id="status-pattern">No Pattern</span>
+          </div>
+          <div class="status-pill">
+            <span class="status-dot off" id="dot-minimac"></span>
+            <span>MiniMac</span>
+          </div>
+          <div class="status-pill">
+            <span class="status-dot off" id="dot-led"></span>
+            <span>LED Bars</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── DMX strip ─────────────────────────────────────────────── -->
+      <div id="dmx-strip">
+        <div class="dmx-section">
+          <span class="dmx-section-label">Moving Lights</span>
+          <div class="light-indicator" id="light-0"></div>
+          <div class="light-indicator" id="light-1"></div>
+          <div class="light-indicator" id="light-2"></div>
+          <div class="light-indicator" id="light-3"></div>
+        </div>
+        <div class="dmx-divider"></div>
+        <div class="dmx-section">
+          <span class="dmx-section-label">LED Bars</span>
+          <div class="led-bar-indicator" id="led-0"></div>
+          <div class="led-bar-indicator" id="led-1"></div>
+          <div class="led-bar-indicator" id="led-2"></div>
+          <div class="led-bar-indicator" id="led-3"></div>
+          <div class="led-bar-indicator" id="led-4"></div>
+          <div class="led-bar-indicator" id="led-5"></div>
+        </div>
+        <div class="dmx-divider"></div>
+        <div class="dmx-section" style="flex-direction:column; align-items:flex-start; gap:3px;">
+          <span class="dmx-section-label">Pan: <strong id="dmx-pan">128</strong></span>
+          <span class="dmx-section-label">Tilt: <strong id="dmx-tilt">180</strong></span>
+        </div>
+      </div>
+    </div><!-- /canvas-panel -->
+
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<script>
+// ── JavaScript will go here in Step 3 ───────────────────────────────
+console.log('Simulator HTML loaded. JS coming in Step 3.');
+</script>
+</body>
+</html>
