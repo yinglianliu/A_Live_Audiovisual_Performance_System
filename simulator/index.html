@@ -657,11 +657,18 @@
             <button class="osc-btn" id="btn-mic">MIC Off</button>
             <span id="mic-status" style="font-size:10px; color:var(--text-dim); align-self:center; padding-left:4px;">Simulated audio</span>
           </div>
-          <div class="ctrl-row" style="margin-bottom:8px;">
+          <div class="ctrl-row" style="margin-bottom:4px;">
             <span class="ctrl-label" style="flex-shrink:0;">Device</span>
             <select id="audio-device-select" style="flex:1; background:var(--ctrl-bg); color:var(--text); border:1px solid var(--ctrl-border); border-radius:var(--radius); padding:3px 6px; font-size:11px; font-family:inherit;">
               <option value="">— default mic —</option>
             </select>
+          </div>
+          <div class="ctrl-row" style="margin-bottom:8px;">
+            <span class="ctrl-label" style="flex-shrink:0;">Signal</span>
+            <div id="signal-bar-wrap" style="flex:1; height:10px; background:#111; border:1px solid var(--ctrl-border); border-radius:3px; overflow:hidden;">
+              <div id="signal-bar" style="height:100%; width:0%; background:var(--active); transition:width 0.05s;"></div>
+            </div>
+            <span id="signal-val" style="width:28px; text-align:right; color:var(--text-dim); font-size:10px;">0</span>
           </div>
 
           <div class="section-title" id="fft-title">FFT Bands (Simulated)</div>
@@ -998,10 +1005,13 @@ async function startMic() {
       : true;
     micStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
     audioCtx  = new AudioContext();
+    await audioCtx.resume();                 // Chrome/Safari may start suspended
     const src = audioCtx.createMediaStreamSource(micStream);
     analyser  = audioCtx.createAnalyser();
-    analyser.fftSize              = 2048;   // 1024 bins, ~21 Hz per bin @44100
-    analyser.smoothingTimeConstant = 0.72;  // similar to Minim default
+    analyser.fftSize               = 2048;
+    analyser.smoothingTimeConstant = 0.6;
+    analyser.minDecibels           = -90;   // more sensitive than default -100/-30
+    analyser.maxDecibels           = -10;
     src.connect(analyser);
     fftBuffer = new Uint8Array(analyser.frequencyBinCount);
     micActive = true;
@@ -1066,16 +1076,25 @@ function updateAudioFromMic() {
   analyser.getByteFrequencyData(fftBuffer);
   const binHz = audioCtx.sampleRate / analyser.fftSize;
 
+  let rawMax = 0;
   for (let i = 0; i < 7; i++) {
     const [fLo, fHi] = BAND_RANGES[i];
     const bLo  = Math.max(0, Math.floor(fLo  / binHz));
     const bHi  = Math.min(fftBuffer.length - 1, Math.ceil(fHi / binHz));
     let sum = 0;
-    for (let b = bLo; b <= bHi; b++) sum += fftBuffer[b];
+    for (let b = bLo; b <= bHi; b++) {
+      sum += fftBuffer[b];
+      if (fftBuffer[b] > rawMax) rawMax = fftBuffer[b];
+    }
     const avg = bHi >= bLo ? sum / (bHi - bLo + 1) : 0;
-    // fftBuffer values 0-255 → map to 0-100 with slight boost for headroom
     audioData[i] = clamp(avg / 255 * 140, 0, 100);
   }
+
+  // Update signal level indicator (shows raw FFT peak 0-255)
+  const sigPct = (rawMax / 255 * 100).toFixed(0);
+  $('signal-bar').style.width  = sigPct + '%';
+  $('signal-val').textContent  = rawMax;
+  $('signal-bar').style.background = rawMax < 10 ? 'var(--danger)' : 'var(--active)';
 }
 
 // ════════════════════════════════════════════════════════════════════
