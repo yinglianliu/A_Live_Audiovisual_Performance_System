@@ -545,11 +545,6 @@
             <span class="ctrl-value" id="val-speedOSC">0.25</span>
           </div>
           <div class="ctrl-row">
-            <span class="ctrl-label">Frame Rate</span>
-            <input type="range" min="0" max="1" step="0.01" value="0.5" id="frameROSC">
-            <span class="ctrl-value" id="val-frameROSC">0.50</span>
-          </div>
-          <div class="ctrl-row">
             <span class="ctrl-label">Easing</span>
             <input type="range" min="0" max="1" step="0.01" value="0.4" id="easingOSC">
             <span class="ctrl-value" id="val-easingOSC">0.40</span>
@@ -925,7 +920,6 @@ const state = {
   // Pattern
   activePattern: 0,           // 0=idle 1-4=patterns 5=cam 6=off
   speedOSC:       0.25,
-  frameROSC:      0.5,
   easingOSC:      0.4,
   diamOSC:        0.5,
   transparencyOSC:0.4,
@@ -982,7 +976,6 @@ const derived = {
   diam:         300,
   transparency: 100,
   density:      12,
-  frameR:       15,
   minimacSpeed: 15,
   ledSpeed:     15,
   colorMin:     84,
@@ -1002,7 +995,6 @@ function updateDerived() {
   derived.diam         = map(s.diamOSC,         0,1, 11, W * 0.6);
   derived.transparency = map(s.transparencyOSC, 0,1, 0, 255);
   derived.density      = map(s.densityOSC,      0,1, 6, 20);
-  derived.frameR       = Math.max(1, Math.floor(map(s.frameROSC, 0,1, 31, 2)));
   derived.minimacSpeed = Math.max(1, Math.floor(map(s.minimacSpeedOSC, 0,1, 31, 2)));
   derived.ledSpeed     = Math.max(1, Math.floor(map(s.ledSpeedOSC,     0,1, 31, 2)));
   derived.colorMin     = Math.floor(map(s.colorMinOSC, 0,1, 24, 150));
@@ -1201,7 +1193,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 // FADER WIRING  — all range inputs auto-bind to state + value label
 // ════════════════════════════════════════════════════════════════════
 const faderIds = [
-  'speedOSC','frameROSC','easingOSC','diamOSC','transparencyOSC','densityOSC',
+  'speedOSC','easingOSC','diamOSC','transparencyOSC','densityOSC',
   'noiseScaleOSC','n1offOSC','n2offOSC','n3offOSC',
   'redOSC','greenOSC','blueOSC',
   'redLEDOSC','greenLEDOSC','blueLEDOSC',
@@ -1640,19 +1632,6 @@ function drawCanvas() {
   }
   ctx.fillRect(0, 0, W, H);
 
-  // ── Frame Rate throttle (frameROSC) ──────────────────────────────
-  // Background fade always runs every frame for smooth trails.
-  // New pattern shapes are only drawn every N frames → strobing / slow-motion.
-  frameSkipCount++;
-  if (frameSkipCount % derived.frameR !== 0) {
-    ctx.globalCompositeOperation = 'source-over';
-    if (beatFlash > 0.01) {
-      ctx.fillStyle = `rgba(255,255,255,${beatFlash * 0.13})`;
-      ctx.fillRect(0, 0, W, H);
-    }
-    return;
-  }
-
   // ── Draw pattern ──────────────────────────────────────────────────
   ctx.globalCompositeOperation = 'difference';
 
@@ -2057,8 +2036,7 @@ function drawPTCanvas() {
 // ════════════════════════════════════════════════════════════════════
 // MAIN LOOP
 // ════════════════════════════════════════════════════════════════════
-let frameCount     = 0;
-let frameSkipCount = 0;  // for frameROSC throttling
+let frameCount = 0;
 
 function loop(ts) {
   const t = ts / 1000;
