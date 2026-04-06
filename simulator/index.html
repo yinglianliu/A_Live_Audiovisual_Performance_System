@@ -589,6 +589,28 @@
             <span class="ctrl-value" id="val-n3offOSC">0.50</span>
           </div>
 
+          <div class="section-title">P3 Blob Controls</div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Blob Hue</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.72" id="metaHueOSC">
+            <span class="ctrl-value" id="val-metaHueOSC">0.72</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Ease Rate</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.30" id="metaEaseOSC">
+            <span class="ctrl-value" id="val-metaEaseOSC">0.30</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Trigger Lvl</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.40" id="metaThreshOSC">
+            <span class="ctrl-value" id="val-metaThreshOSC">0.40</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Blob Glow</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.60" id="metaGlowOSC">
+            <span class="ctrl-value" id="val-metaGlowOSC">0.60</span>
+          </div>
+
         </div><!-- /tab-pattern -->
 
         <!-- ── COLOR tab ───────────────────────────────────────── -->
@@ -914,6 +936,17 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const lerp  = (a, b, t) => a + (b - a) * t;
 const $ = id => document.getElementById(id);
 
+// HSL → RGB (h/s/l all 0–1). Used by P3 metaball palette.
+function hsl2rgb(h, s, l) {
+  h = ((h % 1) + 1) % 1;  // wrap to [0,1)
+  const a = s * Math.min(l, 1 - l);
+  const f = n => {
+    const k = (n + h * 12) % 12;
+    return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+  };
+  return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+}
+
 // ════════════════════════════════════════════════════════════════════
 // STATE  (mirrors all OSC parameters)
 // ════════════════════════════════════════════════════════════════════
@@ -929,6 +962,11 @@ const state = {
   n1offOSC:       0.5,
   n2offOSC:       0.5,
   n3offOSC:       0.5,
+  // P3 Blob controls
+  metaHueOSC:     0.72,   // 0-1 → full hue rotation (0.72 ≈ 260° violet/purple)
+  metaEaseOSC:    0.30,   // 0-1 → drift speed slow↔fast
+  metaThreshOSC:  0.40,   // 0-1 → trigger energy threshold sensitive↔reluctant
+  metaGlowOSC:    0.60,   // 0-1 → glow pass brightness
   // Colors
   redOSC:         0.8,
   greenOSC:       0.3,
@@ -1196,6 +1234,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 const faderIds = [
   'speedOSC','easingOSC','diamOSC','transparencyOSC','densityOSC',
   'noiseScaleOSC','n1offOSC','n2offOSC','n3offOSC',
+  'metaHueOSC','metaEaseOSC','metaThreshOSC','metaGlowOSC',
   'redOSC','greenOSC','blueOSC',
   'redLEDOSC','greenLEDOSC','blueLEDOSC',
   'colorMinOSC','colorMaxOSC',
@@ -1308,7 +1347,8 @@ $('btn-reset').addEventListener('click', () => {
   // Reset faders
   faderIds.forEach(id => {
     const defaults = { speedOSC:0.25, easingOSC:0.4, redOSC:0.8, greenOSC:0.3, blueOSC:0.9,
-                       redLEDOSC:0.7, greenLEDOSC:0.2, blueLEDOSC:0.8, micSenOSC:0.5 };
+                       redLEDOSC:0.7, greenLEDOSC:0.2, blueLEDOSC:0.8, micSenOSC:0.5,
+                       metaHueOSC:0.72, metaEaseOSC:0.30, metaThreshOSC:0.40, metaGlowOSC:0.60 };
     state[id] = defaults[id] ?? 0.5;
     const el = $(id);
     if (el) { el.value = state[id]; }
@@ -1953,6 +1993,19 @@ function drawMetaballs(cx, cy, W, H, cr, cg, cb, al) {
   const nBlobs    = Math.max(3, Math.round(map(derived.density, 6, 20, 3, META_N)));
   const baseBlobR = map(derived.diam, 11, canvas.width * 0.6, 28, 90);
 
+  // ── Slider-driven parameters ──────────────────────────────────────
+  // Ease Rate: slider 0→1 maps to 0.003–0.038 per-frame rate
+  const easeBase   = map(state.metaEaseOSC, 0, 1, 0.003, 0.038);
+  // Trigger Threshold: slider 0→1 maps to 0.05–0.60 energy level
+  const trigThresh = map(state.metaThreshOSC, 0, 1, 0.05, 0.60);
+  // Glow: slider 0→1 scales the additive glow brightness
+  const glowScale  = map(state.metaGlowOSC, 0, 1, 0.0, 1.8);
+  // Blob palette from hue slider — three gradient stops via HSL
+  const hue        = state.metaHueOSC;
+  const [r0,g0,b0] = hsl2rgb(hue,        0.95, 0.55);  // center
+  const [r1,g1,b1] = hsl2rgb(hue + 0.11, 0.90, 0.42);  // mid
+  const [r2,g2,b2] = hsl2rgb(hue + 0.22, 0.80, 0.48);  // edge
+
   // Trigger band: same band the user selected for shutter/dim
   const triggerVal = smoothedAudio[state.dim] / 100;   // 0–1
 
@@ -1970,11 +2023,11 @@ function drawMetaballs(cx, cy, W, H, cr, cg, cb, al) {
     // ── Target assignment ─────────────────────────────────────────
     metaMoveCool[i] -= 1;
     if (metaMoveCool[i] <= 0) {
-      if (triggerVal > 0.25) {
+      if (triggerVal > trigThresh) {
         // Trigger band is active → pick a new destination
         pickTarget(i);
         // Louder = re-pick more often (30–180 frames at 60 fps ≈ 0.5–3 s)
-        metaMoveCool[i] = map(triggerVal, 0.25, 1.0, 180, 30);
+        metaMoveCool[i] = map(triggerVal, trigThresh, 1.0, 180, 30);
       } else {
         // Quiet: keep current target, check again in ~2 s
         metaMoveCool[i] = 120;
@@ -1988,8 +2041,8 @@ function drawMetaballs(cx, cy, W, H, cr, cg, cb, al) {
     }
 
     // ── Slow easing toward target ────────────────────────────────
-    // easeRate: very small → glacial drift; scales up with trigger energy
-    const easeRate = 0.006 + triggerVal * 0.018;  // ≈0.006–0.024/frame
+    // Base rate from slider; trigger energy adds proportional boost
+    const easeRate = easeBase + triggerVal * easeBase;
     metaBx[i] += (metaTargetX[i] - metaBx[i]) * easeRate;
     metaBy[i] += (metaTargetY[i] - metaBy[i]) * easeRate;
 
@@ -2028,20 +2081,20 @@ function drawMetaballs(cx, cy, W, H, cr, cg, cb, al) {
   // White blobs × colour = colour; black background × colour = black
   ctx.globalCompositeOperation = 'multiply';
   const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.75);
-  // Palette: electric purple center → deep blue → teal edge, tinted by user colour
-  const uMix = 0.25;
-  const r0 = Math.round(cr * uMix + 140);
-  const g0 = Math.round(cg * uMix + 0);
-  const b0 = Math.round(cb * uMix + 255);
-  const r1 = Math.round(cr * uMix + 20);
-  const g1 = Math.round(cg * uMix + 80);
-  const b1 = Math.round(cb * uMix + 220);
-  const r2 = Math.round(cr * uMix + 0);
-  const g2 = Math.round(cg * uMix + 180);
-  const b2 = Math.round(cb * uMix + 200);
-  grad.addColorStop(0,    `rgba(${clamp(r0,0,255)},${clamp(g0,0,255)},${clamp(b0,0,255)},${al})`);
-  grad.addColorStop(0.5,  `rgba(${clamp(r1,0,255)},${clamp(g1,0,255)},${clamp(b1,0,255)},${al})`);
-  grad.addColorStop(1,    `rgba(${clamp(r2,0,255)},${clamp(g2,0,255)},${clamp(b2,0,255)},${al})`);
+  // Palette from hue slider, lightly tinted by user audio colour
+  const uMix = 0.20;
+  const gc0r = clamp(Math.round(r0 + cr * uMix), 0, 255);
+  const gc0g = clamp(Math.round(g0 + cg * uMix), 0, 255);
+  const gc0b = clamp(Math.round(b0 + cb * uMix), 0, 255);
+  const gc1r = clamp(Math.round(r1 + cr * uMix), 0, 255);
+  const gc1g = clamp(Math.round(g1 + cg * uMix), 0, 255);
+  const gc1b = clamp(Math.round(b1 + cb * uMix), 0, 255);
+  const gc2r = clamp(Math.round(r2 + cr * uMix), 0, 255);
+  const gc2g = clamp(Math.round(g2 + cg * uMix), 0, 255);
+  const gc2b = clamp(Math.round(b2 + cb * uMix), 0, 255);
+  grad.addColorStop(0,   `rgba(${gc0r},${gc0g},${gc0b},${al})`);
+  grad.addColorStop(0.5, `rgba(${gc1r},${gc1g},${gc1b},${al})`);
+  grad.addColorStop(1,   `rgba(${gc2r},${gc2g},${gc2b},${al})`);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
@@ -2051,9 +2104,11 @@ function drawMetaballs(cx, cy, W, H, cr, cg, cb, al) {
     const r   = metaBr[i] * 0.35;
     const glow = ctx.createRadialGradient(metaBx[i], metaBy[i], 0,
                                           metaBx[i], metaBy[i], r);
-    const gStr = al * (0.30 + smoothedAudio[i % 7] / 100 * 0.45);
-    glow.addColorStop(0,   `rgba(180,230,255,${gStr.toFixed(3)})`);
-    glow.addColorStop(0.5, `rgba(80,140,255,${(gStr * 0.5).toFixed(3)})`);
+    const gStr = al * glowScale * (0.20 + smoothedAudio[i % 7] / 100 * 0.42);
+    // Glow colour: lighter version of hue center, then fade out
+    const [gr, gg2, gb] = hsl2rgb(hue + i * 0.04, 0.85, 0.75);
+    glow.addColorStop(0,   `rgba(${gr},${gg2},${gb},${gStr.toFixed(3)})`);
+    glow.addColorStop(0.5, `rgba(${Math.round(gr*0.6)},${Math.round(gg2*0.6)},${Math.round(gb*0.6)},${(gStr*0.45).toFixed(3)})`);
     glow.addColorStop(1,   'rgba(0,0,0,0)');
     ctx.fillStyle = glow;
     ctx.beginPath();
