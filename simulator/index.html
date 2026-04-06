@@ -1610,19 +1610,26 @@ function initRiver(W, H) {
 const META_N   = 8;
 const metaBx   = new Float32Array(META_N);
 const metaBy   = new Float32Array(META_N);
-const metaBvx  = new Float32Array(META_N);
+const metaBvx  = new Float32Array(META_N);   // kept for BPM kick residual
 const metaBvy  = new Float32Array(META_N);
 const metaBr   = new Float32Array(META_N);   // field radius
+// Target positions — blobs drift toward these slowly
+const metaTargetX  = new Float32Array(META_N);
+const metaTargetY  = new Float32Array(META_N);
+const metaMoveCool = new Float32Array(META_N); // per-blob countdown before next target pick
 let metaReady  = false;
 let metaOffscreen = null, metaOffCtx = null;
 
 function initMeta(W, H) {
   for (let i = 0; i < META_N; i++) {
-    metaBx[i]  = W * (0.2 + Math.random() * 0.6);
-    metaBy[i]  = H * (0.2 + Math.random() * 0.6);
-    metaBvx[i] = (Math.random() - 0.5) * 1.4;
-    metaBvy[i] = (Math.random() - 0.5) * 1.4;
-    metaBr[i]  = 40 + Math.random() * 55;
+    metaBx[i]       = W * (0.15 + Math.random() * 0.7);
+    metaBy[i]       = H * (0.15 + Math.random() * 0.7);
+    metaTargetX[i]  = metaBx[i];
+    metaTargetY[i]  = metaBy[i];
+    metaBvx[i]      = 0;
+    metaBvy[i]      = 0;
+    metaBr[i]       = 40 + Math.random() * 55;
+    metaMoveCool[i] = Math.random() * 90;  // stagger initial target picks
   }
   metaReady = true;
 }
@@ -1944,32 +1951,47 @@ function drawMetaballs(cx, cy, W, H, cr, cg, cb, al) {
   const high = smoothedAudio[5] / 100;
 
   const nBlobs    = Math.max(3, Math.round(map(derived.density, 6, 20, 3, META_N)));
-  const moveSpeed = 0.4 + mid * 2.0 + bass * 0.8;
   const baseBlobR = map(derived.diam, 11, canvas.width * 0.6, 28, 90);
+
+  // Trigger band: same band the user selected for shutter/dim
+  const triggerVal = smoothedAudio[state.dim] / 100;   // 0–1
+
+  // Margin keeps targets away from canvas edges
+  const mX = W * 0.12, mY = H * 0.12;
+
+  // Helper: pick a new random target for blob i
+  function pickTarget(i) {
+    metaTargetX[i] = mX + Math.random() * (W - 2 * mX);
+    metaTargetY[i] = mY + Math.random() * (H - 2 * mY);
+  }
 
   // Update blob positions + audio-reactive radii
   for (let i = 0; i < nBlobs; i++) {
-    metaBx[i]  += metaBvx[i] * moveSpeed;
-    metaBy[i]  += metaBvy[i] * moveSpeed;
-
-    // Bounce off edges
-    if (metaBx[i] < 0)  { metaBx[i] = 0;  metaBvx[i] = Math.abs(metaBvx[i]); }
-    if (metaBx[i] > W)  { metaBx[i] = W;  metaBvx[i] = -Math.abs(metaBvx[i]); }
-    if (metaBy[i] < 0)  { metaBy[i] = 0;  metaBvy[i] = Math.abs(metaBvy[i]); }
-    if (metaBy[i] > H)  { metaBy[i] = H;  metaBvy[i] = -Math.abs(metaBvy[i]); }
-
-    // BPM beat: brief kick to velocity
-    if (beatFlash > 0.85) {
-      const ang = (i / nBlobs) * Math.PI * 2 + patAngle;
-      metaBvx[i] += Math.cos(ang) * beatFlash * 2.5;
-      metaBvy[i] += Math.sin(ang) * beatFlash * 2.5;
+    // ── Target assignment ─────────────────────────────────────────
+    metaMoveCool[i] -= 1;
+    if (metaMoveCool[i] <= 0) {
+      if (triggerVal > 0.25) {
+        // Trigger band is active → pick a new destination
+        pickTarget(i);
+        // Louder = re-pick more often (30–180 frames at 60 fps ≈ 0.5–3 s)
+        metaMoveCool[i] = map(triggerVal, 0.25, 1.0, 180, 30);
+      } else {
+        // Quiet: keep current target, check again in ~2 s
+        metaMoveCool[i] = 120;
+      }
     }
 
-    // Damping + clamp
-    metaBvx[i] *= 0.985;
-    metaBvy[i] *= 0.985;
-    metaBvx[i] = clamp(metaBvx[i], -4, 4);
-    metaBvy[i] = clamp(metaBvy[i], -4, 4);
+    // BPM beat: immediately scatter all blobs to new positions
+    if (beatFlash > 0.88 && i < nBlobs) {
+      pickTarget(i);
+      metaMoveCool[i] = 45;
+    }
+
+    // ── Slow easing toward target ────────────────────────────────
+    // easeRate: very small → glacial drift; scales up with trigger energy
+    const easeRate = 0.006 + triggerVal * 0.018;  // ≈0.006–0.024/frame
+    metaBx[i] += (metaTargetX[i] - metaBx[i]) * easeRate;
+    metaBy[i] += (metaTargetY[i] - metaBy[i]) * easeRate;
 
     // Radius: driven by corresponding audio band
     metaBr[i] = baseBlobR * (0.7 + smoothedAudio[i % 7] / 100 * 0.8 + bass * 0.35);
