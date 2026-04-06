@@ -531,9 +531,9 @@
           <div class="section-title">Pattern Select</div>
           <div class="btn-grid btn-grid-3" id="pattern-btns">
             <button class="osc-btn" data-pattern="1">P1 Moire</button>
-            <button class="osc-btn" data-pattern="2">P2 Rings</button>
-            <button class="osc-btn" data-pattern="3">P3 Light</button>
-            <button class="osc-btn" data-pattern="4">P4 Jazz</button>
+            <button class="osc-btn" data-pattern="2">P2 River</button>
+            <button class="osc-btn" data-pattern="3">P3 Blobs</button>
+            <button class="osc-btn" data-pattern="4">P4 Zoom</button>
             <button class="osc-btn" data-pattern="5">Camera</button>
             <button class="osc-btn active-red" data-pattern="6">Off</button>
           </div>
@@ -909,8 +909,9 @@
 // ════════════════════════════════════════════════════════════════════
 // HELPERS
 // ════════════════════════════════════════════════════════════════════
-const map = (v, a, b, c, d) => c + (v - a) / (b - a) * (d - c);
+const map   = (v, a, b, c, d) => c + (v - a) / (b - a) * (d - c);
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp  = (a, b, t) => a + (b - a) * t;
 const $ = id => document.getElementById(id);
 
 // ════════════════════════════════════════════════════════════════════
@@ -1581,6 +1582,54 @@ function jazzSpawnParticles(ox, oy, n, type, speed) {
   }
 }
 
+// ── P2 River — particle pool ──────────────────────────────────────────
+const RIVER_MAX_P  = 350;
+const riverPx    = new Float32Array(RIVER_MAX_P);
+const riverPy    = new Float32Array(RIVER_MAX_P);
+const riverPvx   = new Float32Array(RIVER_MAX_P);
+const riverPvy   = new Float32Array(RIVER_MAX_P);
+const riverPsz   = new Float32Array(RIVER_MAX_P);  // dot radius
+const riverPbri  = new Float32Array(RIVER_MAX_P);  // brightness 0→1
+const riverPtype = new Uint8Array(RIVER_MAX_P);    // 0=main, 1=sparkle
+let riverReady   = false;
+
+function initRiver(W, H) {
+  for (let i = 0; i < RIVER_MAX_P; i++) {
+    riverPx[i]    = Math.random() * W;
+    riverPy[i]    = Math.random() * H;
+    riverPvx[i]   = 0.6 + Math.random() * 2.0;
+    riverPvy[i]   = (Math.random() - 0.5) * 0.8;
+    riverPsz[i]   = 0.8 + Math.random() * 2.2;
+    riverPbri[i]  = 0.2 + Math.random() * 0.8;
+    riverPtype[i] = Math.random() < 0.08 ? 1 : 0;
+  }
+  riverReady = true;
+}
+
+// ── P3 Metaballs — blob state ─────────────────────────────────────────
+const META_N   = 8;
+const metaBx   = new Float32Array(META_N);
+const metaBy   = new Float32Array(META_N);
+const metaBvx  = new Float32Array(META_N);
+const metaBvy  = new Float32Array(META_N);
+const metaBr   = new Float32Array(META_N);   // field radius
+let metaReady  = false;
+let metaOffscreen = null, metaOffCtx = null;
+
+function initMeta(W, H) {
+  for (let i = 0; i < META_N; i++) {
+    metaBx[i]  = W * (0.2 + Math.random() * 0.6);
+    metaBy[i]  = H * (0.2 + Math.random() * 0.6);
+    metaBvx[i] = (Math.random() - 0.5) * 1.4;
+    metaBvy[i] = (Math.random() - 0.5) * 1.4;
+    metaBr[i]  = 40 + Math.random() * 55;
+  }
+  metaReady = true;
+}
+
+// ── P4 Infinite Squares ───────────────────────────────────────────────
+let sqZoomPhase = 0;   // accumulates each frame; mod log(ZOOM_RATIO) for seamless loop
+
 // ════════════════════════════════════════════════════════════════════
 // CANVAS RENDERING
 // ════════════════════════════════════════════════════════════════════
@@ -1661,25 +1710,31 @@ function drawCanvas() {
 
   // ── Background fill (persistent trail, mimics Processing alpha fill) ─
   ctx.globalCompositeOperation = 'source-over';
-  if (p === 3) {
-    ctx.fillStyle = `rgba(230,230,230,${al * 0.85})`;
+  if (p === 2) {
+    // River: very dark navy — deep water
+    ctx.fillStyle = `rgba(0,4,18,${al * 0.82})`;
+  } else if (p === 3) {
+    // Metaballs: handled entirely inside drawMetaballs (full clear each frame)
+    ctx.fillStyle = `rgba(0,0,0,1)`;
   } else if (p === 4) {
-    // P4 Jazz: deep warm-black — like a dimly lit jazz club
-    ctx.fillStyle = `rgba(8,3,0,${al * 0.88})`;
+    // Zoom squares: moderate trail → ghost echo of past squares
+    ctx.fillStyle = `rgba(0,0,0,${al * 0.80})`;
   } else {
     ctx.fillStyle = `rgba(0,0,0,${al * 0.85})`;
   }
   ctx.fillRect(0, 0, W, H);
 
-  // ── Draw pattern ──────────────────────────────────────────────────
-  ctx.globalCompositeOperation = 'difference';
-
+  // ── Draw pattern (each function sets its own composite mode) ─────
   if (p === 1) {
+    ctx.globalCompositeOperation = 'difference';
     drawMoire(cx, cy, outerR, cr, cg, cb, al, density);
+    ctx.globalCompositeOperation = 'source-over';
+  } else if (p === 2) {
+    drawRiver(cx, cy, W, H, cr, cg, cb, al);
+  } else if (p === 3) {
+    drawMetaballs(cx, cy, W, H, cr, cg, cb, al);
   } else if (p === 4) {
-    drawJazzEnsemble(cx, cy, cr, cg, cb, al);
-  } else {
-    drawRings(cx, cy, outerR, innerR, cr, cg, cb, al, density, p);
+    drawInfiniteSquares(cx, cy, W, H, cr, cg, cb, al);
   }
 
   ctx.globalCompositeOperation = 'source-over';
@@ -1726,10 +1781,361 @@ function drawMoire(cx, cy, outerR, cr, cg, cb, al, density) {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Patterns 2/3/4 — Concentric rotating rings
-//   P2: dark bg, colored rings
-//   P3: light bg, dark rings
-//   P4: gray bg,  grayscale rings
+// Pattern 2 — River (fluid particle flow, blue palette)
+// ────────────────────────────────────────────────────────────────────
+// Particles flow rightward following a sinusoidal "river channel"
+// that breathes and curves with the music. Three colour layers:
+//   Deep blue   → low-energy / background particles
+//   Cyan/white  → high-energy / surface sparkles
+//   Beat pulse  → brief bright ring on BPM hit
+// ────────────────────────────────────────────────────────────────────
+function drawRiver(cx, cy, W, H, cr, cg, cb, al) {
+  if (!riverReady) initRiver(W, H);
+
+  const bass  = smoothedAudio[1] / 100;
+  const mid   = smoothedAudio[3] / 100;
+  const high  = smoothedAudio[5] / 100;
+  const sub   = smoothedAudio[0] / 100;
+
+  // River channel: sinusoidal centerline that the particles follow
+  const chanAmp   = H * (0.18 + mid * 0.16);
+  const chanFreq  = 0.003 + mid * 0.003;
+  const chanShift = patAngle * 0.28 + n1off * 1.5;
+
+  const flowSpeed = 0.8 + mid * 2.2 + bass * 1.0;
+  const turbStr   = bass * 3.5;
+
+  // Spawn sparkle particles on high-freq hits
+  if (high > 0.45 && Math.random() < high * 0.7) {
+    // Overwrite a random dead slot with a sparkle near the channel
+    const sx   = Math.random() * W;
+    const sy   = cy + chanAmp * Math.sin(sx * chanFreq + chanShift) +
+                 (Math.random() - 0.5) * chanAmp * 0.4;
+    const slot = Math.floor(Math.random() * RIVER_MAX_P);
+    riverPx[slot]    = sx;
+    riverPy[slot]    = sy;
+    riverPvx[slot]   = 0.3 + Math.random() * 0.8;
+    riverPvy[slot]   = (Math.random() - 0.5) * 0.6;
+    riverPsz[slot]   = 0.5 + Math.random() * 1.0;
+    riverPbri[slot]  = 0.85 + Math.random() * 0.15;
+    riverPtype[slot] = 1;
+  }
+
+  ctx.globalCompositeOperation = 'source-over';
+
+  for (let i = 0; i < RIVER_MAX_P; i++) {
+    // River channel y at this particle's x
+    const chanY  = cy + chanAmp * Math.sin(riverPx[i] * chanFreq + chanShift);
+    const dyToChan = chanY - riverPy[i];
+
+    // Forces
+    riverPvx[i] += 0.12 * flowSpeed;
+    riverPvy[i] += dyToChan * 0.006 * (1 + mid * 1.5);  // channel attraction
+    riverPvx[i] += (Math.random() - 0.5) * turbStr * 0.4;
+    riverPvy[i] += (Math.random() - 0.5) * turbStr * 0.5;
+
+    // Drag
+    riverPvx[i] *= 0.94;
+    riverPvy[i] *= 0.90;
+
+    // Clamp velocity
+    riverPvx[i] = clamp(riverPvx[i], -8, 12);
+    riverPvy[i] = clamp(riverPvy[i], -6, 6);
+
+    riverPx[i] += riverPvx[i];
+    riverPy[i] += riverPvy[i];
+
+    // Recycle particle that drifts off-screen
+    if (riverPx[i] > W + 10 || riverPx[i] < -30 ||
+        riverPy[i] > H + 20 || riverPy[i] < -20) {
+      // Respawn at left edge, near channel
+      riverPx[i]    = -5 - Math.random() * 20;
+      riverPy[i]    = cy + chanAmp * Math.sin(0 * chanFreq + chanShift) +
+                      (Math.random() - 0.5) * chanAmp * 1.6;
+      riverPvx[i]   = 0.6 + Math.random() * 2.2;
+      riverPvy[i]   = (Math.random() - 0.5) * 0.7;
+      riverPsz[i]   = 0.8 + Math.random() * 2.5;
+      riverPbri[i]  = 0.15 + Math.random() * 0.75;
+      riverPtype[i] = Math.random() < 0.07 ? 1 : 0;
+    }
+
+    // Colour — sparkles: near-white cyan; main: deep blue → mid blue
+    const bri  = riverPbri[i];
+    const spd  = Math.abs(riverPvx[i]) / 8;   // 0-1 based on speed
+    const dist = Math.abs(riverPy[i] - cy) / (H * 0.5);  // 0=center, 1=edge
+
+    let rr, gg, bb;
+    if (riverPtype[i] === 1) {
+      // Sparkle: white → bright cyan
+      rr = Math.round(180 + bri * 75);
+      gg = Math.round(210 + bri * 45);
+      bb = 255;
+    } else {
+      // Main flow: deep navy → electric blue → cyan based on speed+brightness
+      rr = Math.round(cr * 0.15 + spd * 30  + bri * 20);
+      gg = Math.round(cg * 0.15 + spd * 80  + bri * 80 + 20);
+      bb = Math.round(cb * 0.15 + spd * 160 + bri * 120 + 100);
+    }
+
+    // Edge fade
+    const edgeFade = clamp((riverPx[i] + 10) / 40, 0, 1) *
+                     clamp((W + 10 - riverPx[i]) / 60, 0, 1) *
+                     clamp((riverPy[i] + 10) / 40, 0, 1) *
+                     clamp((H + 10 - riverPy[i]) / 60, 0, 1);
+
+    const alpha = al * bri * edgeFade * (riverPtype[i] === 1 ? 0.85 : 0.55);
+    const sz    = riverPsz[i] * (0.6 + spd * 0.8);
+
+    ctx.beginPath();
+    ctx.arc(riverPx[i], riverPy[i], Math.max(0.3, sz), 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${clamp(rr,0,255)},${clamp(gg,0,255)},${clamp(bb,0,255)},${alpha.toFixed(3)})`;
+    ctx.fill();
+  }
+
+  // BPM beat: radial pulse ring
+  if (beatFlash > 0.05) {
+    const pulseR = Math.max(W, H) * 0.55 * (1 - beatFlash * 0.3);
+    ctx.beginPath();
+    ctx.arc(cx, cy, pulseR, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(100,200,255,${al * beatFlash * 0.35})`;
+    ctx.lineWidth   = beatFlash * 6;
+    ctx.stroke();
+  }
+
+  // Soft channel glow line
+  if (mid > 0.1) {
+    ctx.beginPath();
+    ctx.moveTo(0, cy + chanAmp * Math.sin(0 * chanFreq + chanShift));
+    const steps = 60;
+    for (let s = 1; s <= steps; s++) {
+      const x = (s / steps) * W;
+      const y = cy + chanAmp * Math.sin(x * chanFreq + chanShift);
+      ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = `rgba(40,130,255,${al * mid * 0.18})`;
+    ctx.lineWidth   = 1.5 + mid * 3;
+    ctx.stroke();
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Pattern 3 — Metaballs (blob fusion, colour driven by audio)
+// ────────────────────────────────────────────────────────────────────
+// Uses an offscreen canvas + ctx.filter='blur(Npx) contrast(M)' technique:
+//   1. Draw white filled circles on black offscreen canvas
+//   2. drawImage to main canvas with blur+contrast filter applied
+//      → the contrast threshold creates the organic "merge when close" effect
+//   3. Colorize blobs using multiply blend with a gradient overlay
+// Blob count = density OSC, blob size = audio bands, speed = mid freq
+// ────────────────────────────────────────────────────────────────────
+function drawMetaballs(cx, cy, W, H, cr, cg, cb, al) {
+  if (!metaReady) initMeta(W, H);
+
+  // Re-create offscreen canvas if size changed
+  if (!metaOffscreen || metaOffscreen.width !== W || metaOffscreen.height !== H) {
+    metaOffscreen = document.createElement('canvas');
+    metaOffscreen.width  = W;
+    metaOffscreen.height = H;
+    metaOffCtx = metaOffscreen.getContext('2d');
+  }
+
+  const bass = smoothedAudio[1] / 100;
+  const mid  = smoothedAudio[3] / 100;
+  const high = smoothedAudio[5] / 100;
+
+  const nBlobs    = Math.max(3, Math.round(map(derived.density, 6, 20, 3, META_N)));
+  const moveSpeed = 0.4 + mid * 2.0 + bass * 0.8;
+  const baseBlobR = map(derived.diam, 11, canvas.width * 0.6, 28, 90);
+
+  // Update blob positions + audio-reactive radii
+  for (let i = 0; i < nBlobs; i++) {
+    metaBx[i]  += metaBvx[i] * moveSpeed;
+    metaBy[i]  += metaBvy[i] * moveSpeed;
+
+    // Bounce off edges
+    if (metaBx[i] < 0)  { metaBx[i] = 0;  metaBvx[i] = Math.abs(metaBvx[i]); }
+    if (metaBx[i] > W)  { metaBx[i] = W;  metaBvx[i] = -Math.abs(metaBvx[i]); }
+    if (metaBy[i] < 0)  { metaBy[i] = 0;  metaBvy[i] = Math.abs(metaBvy[i]); }
+    if (metaBy[i] > H)  { metaBy[i] = H;  metaBvy[i] = -Math.abs(metaBvy[i]); }
+
+    // BPM beat: brief kick to velocity
+    if (beatFlash > 0.85) {
+      const ang = (i / nBlobs) * Math.PI * 2 + patAngle;
+      metaBvx[i] += Math.cos(ang) * beatFlash * 2.5;
+      metaBvy[i] += Math.sin(ang) * beatFlash * 2.5;
+    }
+
+    // Damping + clamp
+    metaBvx[i] *= 0.985;
+    metaBvy[i] *= 0.985;
+    metaBvx[i] = clamp(metaBvx[i], -4, 4);
+    metaBvy[i] = clamp(metaBvy[i], -4, 4);
+
+    // Radius: driven by corresponding audio band
+    metaBr[i] = baseBlobR * (0.7 + smoothedAudio[i % 7] / 100 * 0.8 + bass * 0.35);
+  }
+
+  // ── Render field on offscreen canvas ─────────────────────────────
+  metaOffCtx.fillStyle = '#000';
+  metaOffCtx.fillRect(0, 0, W, H);
+
+  for (let i = 0; i < nBlobs; i++) {
+    // Use radial gradient for softer field (blends better with blur)
+    const r  = metaBr[i];
+    const gd = metaOffCtx.createRadialGradient(metaBx[i], metaBy[i], 0,
+                                                metaBx[i], metaBy[i], r);
+    gd.addColorStop(0,   'rgba(255,255,255,1)');
+    gd.addColorStop(0.6, 'rgba(255,255,255,0.7)');
+    gd.addColorStop(1,   'rgba(0,0,0,0)');
+    metaOffCtx.fillStyle = gd;
+    metaOffCtx.beginPath();
+    metaOffCtx.arc(metaBx[i], metaBy[i], r, 0, Math.PI * 2);
+    metaOffCtx.fill();
+  }
+
+  // ── Composite to main canvas with blur+contrast filter ───────────
+  // blur merges nearby blobs → contrast thresholds → organic surface
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  const blurPx = Math.round(12 + baseBlobR * 0.12);
+  ctx.filter = `blur(${blurPx}px) contrast(20) brightness(1.1)`;
+  ctx.drawImage(metaOffscreen, 0, 0);
+  ctx.filter = 'none';
+
+  // ── Colour overlay via multiply blend ────────────────────────────
+  // White blobs × colour = colour; black background × colour = black
+  ctx.globalCompositeOperation = 'multiply';
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.75);
+  // Palette: electric purple center → deep blue → teal edge, tinted by user colour
+  const uMix = 0.25;
+  const r0 = Math.round(cr * uMix + 140);
+  const g0 = Math.round(cg * uMix + 0);
+  const b0 = Math.round(cb * uMix + 255);
+  const r1 = Math.round(cr * uMix + 20);
+  const g1 = Math.round(cg * uMix + 80);
+  const b1 = Math.round(cb * uMix + 220);
+  const r2 = Math.round(cr * uMix + 0);
+  const g2 = Math.round(cg * uMix + 180);
+  const b2 = Math.round(cb * uMix + 200);
+  grad.addColorStop(0,    `rgba(${clamp(r0,0,255)},${clamp(g0,0,255)},${clamp(b0,0,255)},${al})`);
+  grad.addColorStop(0.5,  `rgba(${clamp(r1,0,255)},${clamp(g1,0,255)},${clamp(b1,0,255)},${al})`);
+  grad.addColorStop(1,    `rgba(${clamp(r2,0,255)},${clamp(g2,0,255)},${clamp(b2,0,255)},${al})`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Glow pass: additive bright core of each blob ─────────────────
+  ctx.globalCompositeOperation = 'screen';
+  for (let i = 0; i < nBlobs; i++) {
+    const r   = metaBr[i] * 0.35;
+    const glow = ctx.createRadialGradient(metaBx[i], metaBy[i], 0,
+                                          metaBx[i], metaBy[i], r);
+    const gStr = al * (0.30 + smoothedAudio[i % 7] / 100 * 0.45);
+    glow.addColorStop(0,   `rgba(180,230,255,${gStr.toFixed(3)})`);
+    glow.addColorStop(0.5, `rgba(80,140,255,${(gStr * 0.5).toFixed(3)})`);
+    glow.addColorStop(1,   'rgba(0,0,0,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(metaBx[i], metaBy[i], r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Pattern 4 — Infinite Zoom Squares (tunnel / feedback loop)
+// ────────────────────────────────────────────────────────────────────
+// A series of squares zoom continuously outward from the canvas centre,
+// creating an "infinite tunnel into the future" feedback feel.
+//   sqZoomPhase accumulates → mod log(ZOOM_RATIO) for seamless loop
+//   Bass        → zoom speed
+//   Mid         → per-level twist angle (rotation)
+//   High        → colour saturation / brightness flash
+//   Beat        → sudden zoom burst + outline flash
+// ────────────────────────────────────────────────────────────────────
+function drawInfiniteSquares(cx, cy, W, H, cr, cg, cb, al) {
+  const ZOOM_RATIO = 1.38;
+  const LOG_R      = Math.log(ZOOM_RATIO);
+  const N_LEVELS   = 22;   // how many squares visible at once
+
+  const bass  = smoothedAudio[1] / 100;
+  const mid   = smoothedAudio[3] / 100;
+  const high  = smoothedAudio[5] / 100;
+
+  // Zoom speed: audio-reactive + BPM kick
+  const zoomSpeed = derived.speed * 1.8 + bass * 0.055 + beatFlash * 0.04;
+  sqZoomPhase += zoomSpeed;
+
+  // Seamless phase modulo — keep phase in [0, LOG_R)
+  const phase  = sqZoomPhase % LOG_R;
+  const zoomBase = Math.exp(phase);  // 1 → ZOOM_RATIO, then wraps
+
+  // Twist: rotation accumulates per level, driven by mid freq
+  const twistPerLevel = derived.speed * 0.25 + mid * 0.18;
+
+  // Diagonal of canvas → max square half-diagonal needed
+  const maxHalf = Math.sqrt(W * W + H * H) * 0.65;
+  const minHalf = 2;
+
+  ctx.globalCompositeOperation = 'source-over';
+
+  for (let k = 0; k < N_LEVELS; k++) {
+    // Each level's half-size
+    const half = minHalf * Math.pow(ZOOM_RATIO, k) * zoomBase;
+    if (half < 0.5 || half > maxHalf * 1.2) continue;
+
+    const t   = Math.min(1, half / maxHalf);  // 0=small/center, 1=large/edge
+    const rot = k * twistPerLevel + patAngle * 0.15 + n1off * (1 + k * 0.1);
+
+    // Colour: bright vivid center → user colour at edge, with high-freq shimmer
+    const shimmer = high * 0.4 * Math.sin(k * 1.3 + sqZoomPhase * 2);
+    const rr = Math.round(lerp(240 + shimmer * 80, cr, t));
+    const gg = Math.round(lerp(240 + shimmer * 50, cg, t));
+    const bb = Math.round(lerp(255,               cb, t));
+
+    // Opacity: full near edge (visible), fades at tiny center
+    const alpha = al * t * (0.25 + (1 - t) * 0.50) * (0.5 + bass * 0.5);
+
+    // Line width: thicker near edge, hairline at center
+    const lw = 0.5 + t * (2.0 + bass * 3.0);
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(rot);
+    ctx.beginPath();
+    ctx.rect(-half, -half, half * 2, half * 2);
+    ctx.strokeStyle = `rgba(${clamp(rr,0,255)},${clamp(gg,0,255)},${clamp(bb,0,255)},${alpha.toFixed(3)})`;
+    ctx.lineWidth   = lw;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Beat flash: fill the nearest-to-screen square with a brief white outline burst
+  if (beatFlash > 0.05) {
+    const flashHalf = maxHalf * (0.80 + beatFlash * 0.15);
+    const flashRot  = patAngle * 0.15 + sqZoomPhase * twistPerLevel * N_LEVELS * 0.15;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(flashRot);
+    ctx.beginPath();
+    ctx.rect(-flashHalf, -flashHalf, flashHalf * 2, flashHalf * 2);
+    ctx.strokeStyle = `rgba(255,255,255,${al * beatFlash * 0.65})`;
+    ctx.lineWidth   = beatFlash * 8;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Centre dot — always visible, pulses with sub-bass
+  const dotR = 2 + smoothedAudio[0] / 100 * 6;
+  ctx.beginPath();
+  ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(255,255,255,${al * 0.7})`;
+  ctx.fill();
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Patterns 2/3/4 — Concentric rotating rings (LEGACY — no longer used)
+//   Kept for reference only
 // ────────────────────────────────────────────────────────────────────
 function drawRings(cx, cy, outerR, innerR, cr, cg, cb, al, density, pattern) {
   const span = Math.max(1, outerR - innerR);
@@ -1916,7 +2322,6 @@ function drawJazzEnsemble(cx, cy, cr, cg, cb, al) {
 
   // Colour helper — blend user colour with state-specific accent
   const mkCol = (r, g, b, a) => `rgba(${r|0},${g|0},${b|0},${a.toFixed(3)})`;
-  const lerp  = (a, b, t) => a + (b - a) * t;
 
   // User colour weight (subtle tint toward jazz palette)
   const uR = cr * 0.3, uG = cg * 0.25, uB = cb * 0.2;
