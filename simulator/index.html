@@ -1696,7 +1696,7 @@ function drawCanvas() {
   if (p === 1) {
     drawMoire(cx, cy, outerR, cr, cg, cb, al, density);
   } else if (p === 4) {
-    drawJazzSpirals(cx, cy, outerR, cr, cg, cb, al, density);
+    drawJazzEnsemble(cx, cy, cr, cg, cb, al);
   } else {
     drawRings(cx, cy, outerR, innerR, cr, cg, cb, al, density, p);
   }
@@ -1788,85 +1788,127 @@ function drawRings(cx, cy, outerR, innerR, cr, cg, cb, al, density, pattern) {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Pattern 4 — Jazz Swing Spirals
+// Pattern 4 — Jazz Ensemble
 //
-// Four spirals rotating at irrational speed ratios (never align) →
-// mirrors jazz syncopation.  Audio mapping:
-//   bands 0-1 (sub-bass / bass)   → radius swell  (funky bass bounce)
-//   band  3   (mid / piano)       → rotation push  (chord stab kick)
-//   band  5   (presence / whistle)→ line weight spike
-//   transient detector            → centre jitter  (voice / stab surprise)
+// Each of the 7 frequency bands maps to a distinct visual "voice",
+// all drawn simultaneously with difference blend — like a jazz band
+// where every instrument is visible at once.
 //
-// Colour: user colour + warm amber bias pushed on even spirals,
-//         deep wine red bias on odd — always reads as "warm" regardless
-//         of what's set in the Color tab.
+//   bands 0-1  (bass section)  → two large slow ellipses
+//   bands 2-3  (piano comping) → 4 rotating arc segments
+//   bands 4-5  (upper voices)  → 8 / 12 radial stab lines
+//   band  6    (cymbal shimmer)→ 24 tiny sparks (on hit only)
+//   transient                  → all layers briefly expand outward
 // ────────────────────────────────────────────────────────────────────
-function drawJazzSpirals(cx, cy, outerR, cr, cg, cb, al, density) {
-  // √2 cascade — irrational ratios ensure patterns never repeat
-  const RATIOS = [1.000, 1.137, 1.272, 1.414];
+function drawJazzEnsemble(cx, cy, cr, cg, cb, al) {
+  const maxR = Math.min(canvas.width, canvas.height) * 0.42;
 
-  // ── Jazz-specific audio band reads ───────────────────────────────
-  const subBass  = smoothedAudio[0] / 100;   // kick / sub pulse
-  const bass     = smoothedAudio[1] / 100;   // funk bass guitar
-  const piano    = smoothedAudio[3] / 100;   // piano chords / melody
-  const whistle  = smoothedAudio[5] / 100;   // hi-hat / whistle accent
+  // ── Audio reads ───────────────────────────────────────────────────
+  const b0 = smoothedAudio[0] / 100;  // sub-bass / kick
+  const b1 = smoothedAudio[1] / 100;  // funk bass
+  const b2 = smoothedAudio[2] / 100;  // low-mid piano voicing
+  const b3 = smoothedAudio[3] / 100;  // mid piano / melody
+  const b4 = smoothedAudio[4] / 100;  // upper-mid
+  const b5 = smoothedAudio[5] / 100;  // presence / whistle
+  const b6 = smoothedAudio[6] / 100;  // cymbal / brilliance
 
-  // Funk bounce: radius breathes with low-end (elastic bass feel)
-  const funkR    = outerR * (0.52 + subBass * 0.28 + bass * 0.20);
+  // Transient: all layers push outward slightly on sudden loud hit
+  const surge = 1 + transientLevel * 0.22;
 
-  // Syncopation push: piano chord hit briefly accelerates rotation
-  // Positive = attack, decays via smoothedAudio release envelope
-  const syncoPush = piano * 0.009;
+  // Warm colour blend — user colour tinted toward jazz-club palette
+  // Bass:  amber-orange   Mid: warm gold   High: bright cream
+  const mkCol = (base, rAdd, gAdd, bAdd, a) =>
+    `rgba(${Math.min(255,Math.round(base[0]*0.4+rAdd*0.6))},` +
+         `${Math.min(255,Math.round(base[1]*0.4+gAdd*0.6))},` +
+         `${Math.min(255,Math.round(base[2]*0.3+bAdd*0.7))},${a})`;
+  const userC = [cr, cg, cb];
 
-  // Whistle sparkle: thin-to-thick line weight on high-frequency events
-  const sparkle  = 0.7 + whistle * 2.4;
+  // ── LAYER 1: Bass ellipses (bands 0-1) ───────────────────────────
+  const r1 = Math.max(18, maxR * (0.28 + b0 * 0.52) * surge);
+  const r2 = Math.max(14, maxR * (0.22 + b1 * 0.48) * surge);
 
-  // Transient jitter: voice samples / stabs displace spiral centres
-  const jitter   = transientLevel * outerR * 0.14;
+  // Ellipse A — slow clockwise, eccentricity 1.25 × 0.75
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(patAngle * 0.25 + n1off * 0.6);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r1 * 1.25, r1 * 0.75, 0, 0, Math.PI * 2);
+  ctx.strokeStyle = mkCol(userC, 225, 105, 15, al * (0.35 + b0 * 0.55));
+  ctx.lineWidth   = 1.4 + b0 * 3.0;
+  ctx.stroke();
+  ctx.restore();
 
-  for (let s = 0; s < 4; s++) {
-    const ratio = RATIOS[s];
-    const phase = s * Math.PI * 0.5;           // 90° starting offset
+  // Ellipse B — slow counter-clockwise, opposite eccentricity
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-patAngle * 0.18 + n2off * 0.5);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r2 * 0.8, r2 * 1.35, 0, 0, Math.PI * 2);
+  ctx.strokeStyle = mkCol(userC, 175, 30, 55, al * (0.30 + b1 * 0.52));
+  ctx.lineWidth   = 1.2 + b1 * 2.5;
+  ctx.stroke();
+  ctx.restore();
 
-    // Each spiral floats slightly off-centre + reacts to transients
-    const driftX = Math.cos(phase + n1off * 2) * outerR * 0.07;
-    const driftY = Math.sin(phase + n2off * 2) * outerR * 0.055;
-    const jitX   = Math.cos(patAngle * 0.08 + phase) * jitter;
-    const jitY   = Math.sin(patAngle * 0.08 + phase) * jitter;
+  // ── LAYER 2: Piano comping — 4 rotating arc segments (bands 2-3) ─
+  const arcR   = Math.max(12, maxR * (0.14 + (b2 + b3) * 0.20) * surge);
+  const arcRot = patAngle * 0.55;
+  const arcLen = Math.PI * (0.45 + b3 * 0.45);  // arc span breathes with chord
 
-    ctx.save();
-    ctx.translate(cx + driftX + jitX, cy + driftY + jitY);
+  for (let i = 0; i < 4; i++) {
+    const start = arcRot + (i / 4) * Math.PI * 2 + n3off * (1 + i * 0.3);
+    ctx.beginPath();
+    ctx.arc(cx, cy, arcR, start, start + arcLen);
+    ctx.strokeStyle = mkCol(userC, 200, 165, 35,
+      al * (0.28 + b2 * 0.45) * (0.55 + i * 0.15));
+    ctx.lineWidth   = 1.0 + b3 * 1.8;
+    ctx.stroke();
+  }
 
-    // Unique rotation per spiral + synco kick scales with spiral index
-    ctx.rotate(patAngle * ratio + syncoPush * (s + 1) + n3off * (0.8 + s * 0.4));
+  // ── LAYER 3: Stab lines — 8 lines for band 4 (upper-mid) ─────────
+  const stabRot4  = patAngle * 1.25;
+  const innerR4   = maxR * 0.10;
+  const outerR4   = Math.max(innerR4 + 4, innerR4 + maxR * (0.04 + b4 * 0.28) * surge);
 
-    for (let i = 1; i <= density; i++) {
-      const t  = i / density;
-      const r  = funkR * t;
+  for (let i = 0; i < 8; i++) {
+    const ang = stabRot4 + (i / 8) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(ang) * innerR4, cy + Math.sin(ang) * innerR4);
+    ctx.lineTo(cx + Math.cos(ang) * outerR4, cy + Math.sin(ang) * outerR4);
+    ctx.strokeStyle = mkCol(userC, 240, 195, 70, al * (0.18 + b4 * 0.65));
+    ctx.lineWidth   = 0.8 + b4 * 1.6;
+    ctx.stroke();
+  }
 
-      // Ellipse warp: each spiral has different eccentricity + noise drift
-      const warpBase = 0.10 + s * 0.045;
-      const warp     = warpBase * Math.sin(n1off * 5 + i * 0.55 + s * 1.3);
-      const rx       = Math.max(1, r * (1 + warp));
-      const ry       = Math.max(1, r * (1 - warp * 0.65));
+  // ── LAYER 4: Whistle/hi-hat — 12 lines for band 5 ────────────────
+  const stabRot5  = -patAngle * 1.75 + n1off * 1.5;
+  const innerR5   = maxR * 0.16;
+  const outerR5   = Math.max(innerR5 + 3, innerR5 + maxR * (0.025 + b5 * 0.20) * surge);
 
-      // Alpha: inner rings glow warmer, outer rings fade
-      const a = al * (0.28 + 0.72 * (1 - t)) * (0.65 + whistle * 0.35);
+  for (let i = 0; i < 12; i++) {
+    const ang = stabRot5 + (i / 12) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(ang) * innerR5, cy + Math.sin(ang) * innerR5);
+    ctx.lineTo(cx + Math.cos(ang) * outerR5, cy + Math.sin(ang) * outerR5);
+    ctx.strokeStyle = mkCol(userC, 255, 228, 110, al * (0.14 + b5 * 0.72));
+    ctx.lineWidth   = 0.5 + b5 * 1.0;
+    ctx.stroke();
+  }
 
-      // Warm colour bias — even spirals → amber, odd → deep wine
-      // Pushes the visual toward "jazz club lighting" whatever OSC color is set
-      const amber = s % 2 === 0;
-      const wR    = Math.min(255, cr + (amber ? 55 : 25));
-      const wG    = Math.max(0,   cg + (amber ? -10 : -30));
-      const wB    = Math.max(0,   cb - (amber ? 50  : 35));
+  // ── LAYER 5: Cymbal shimmer — 24 sparks, only on hit (band 6) ────
+  if (b6 > 0.12) {
+    const stabRot6 = patAngle * 3.0 + n2off * 2.5;
+    const innerR6  = maxR * 0.20;
+    const outerR6  = innerR6 + maxR * 0.018 * b6 * 3 * surge;
 
+    for (let i = 0; i < 24; i++) {
+      const ang = stabRot6 + (i / 24) * Math.PI * 2;
       ctx.beginPath();
-      ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(${wR},${wG},${wB},${a})`;
-      ctx.lineWidth   = sparkle * (0.5 + t * 0.7);
+      ctx.moveTo(cx + Math.cos(ang) * innerR6, cy + Math.sin(ang) * innerR6);
+      ctx.lineTo(cx + Math.cos(ang) * outerR6, cy + Math.sin(ang) * outerR6);
+      ctx.strokeStyle = `rgba(255,248,200,${al * b6 * 0.85})`;
+      ctx.lineWidth   = 0.4;
       ctx.stroke();
     }
-    ctx.restore();
   }
 }
 
