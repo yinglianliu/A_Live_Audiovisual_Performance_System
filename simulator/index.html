@@ -992,7 +992,7 @@ const derived = {
 function updateDerived() {
   const s = state;
   const W = $('main-canvas').width || 800;
-  derived.micSen       = map(s.micSenOSC,       0,1, 1.0, 0.001);
+  derived.micSen       = map(s.micSenOSC, 0, 1, 0.25, 2.5);  // audio gain: 0.25× (quiet) → 2.5× (sensitive)
   derived.noiseScale   = map(s.noiseScaleOSC,   0,1, 20, 100);
   derived.n1offMax     = map(s.n1offOSC,        0,1, 0.0001, 0.01);
   derived.n2offMax     = map(s.n2offOSC,        0,1, 0.0001, 0.01);
@@ -1474,61 +1474,6 @@ function updateAudioBars() {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// DMX STRIP UPDATE
-// ════════════════════════════════════════════════════════════════════
-function updateDMXStrip() {
-  // Moving lights
-  const shutterVal = audioData[state.dim] / 100;
-  const hue = map(
-    (derived.colorMin + derived.colorMax) / 2,
-    24, 150, 0, 360
-  );
-  for (let i = 0; i < 4; i++) {
-    const el = $('light-' + i);
-    if (!el) continue;
-    if (state.MiniMac) {
-      const col = `hsl(${hue},80%,${20 + shutterVal * 45}%)`;
-      el.style.background = col;
-      el.style.color = col;
-      el.style.borderColor = col;
-      el.classList.add('on');
-    } else {
-      el.style.background = '#111';
-      el.style.borderColor = '#333';
-      el.style.color = 'transparent';
-      el.classList.remove('on');
-    }
-  }
-
-  // LED bars
-  const ledR = Math.round(map(audioData[1],30,100,0,255) * state.redLEDOSC);
-  const ledG = Math.round(map(audioData[3],30,100,0,255) * state.greenLEDOSC);
-  const ledB = Math.round(map(audioData[2],30,100,0,255) * state.blueLEDOSC);
-  for (let i = 0; i < 6; i++) {
-    const el = $('led-' + i);
-    if (!el) continue;
-    if (state.ledButton) {
-      const col = `rgb(${ledR},${ledG},${ledB})`;
-      el.style.background = col;
-      el.style.color = col;
-      el.style.borderColor = `rgb(${Math.min(255,ledR+30)},${Math.min(255,ledG+30)},${Math.min(255,ledB+30)})`;
-      el.classList.add('on');
-    } else {
-      el.style.background = '#111';
-      el.style.borderColor = '#333';
-      el.style.color = 'transparent';
-      el.classList.remove('on');
-    }
-  }
-
-  // Pan / Tilt readout
-  const panVal  = Math.round(map(state.panOSC, 0,1, 151, 255));
-  const tilVal  = Math.round(map(state.tilOSC, 0,1, 181, 255));
-  $('dmx-pan').textContent  = panVal;
-  $('dmx-tilt').textContent = tilVal;
-}
-
-// ════════════════════════════════════════════════════════════════════
 // FPS COUNTER
 // ════════════════════════════════════════════════════════════════════
 let fpsCount = 0, fpsLast = performance.now(), fpsDisplay = 0;
@@ -1579,13 +1524,18 @@ const SMOOTH_RELEASE = 0.06;   // ~16 frames to decay — slow, smooth tail
 
 function updateSmoothedAudio() {
   for (let i = 0; i < 7; i++) {
-    const rate = audioData[i] > smoothedAudio[i] ? SMOOTH_ATTACK : SMOOTH_RELEASE;
-    smoothedAudio[i] += (audioData[i] - smoothedAudio[i]) * rate;
+    // Apply mic sensitivity gain before smoothing
+    const gained = clamp(audioData[i] * derived.micSen, 0, 100);
+    const rate   = gained > smoothedAudio[i] ? SMOOTH_ATTACK : SMOOTH_RELEASE;
+    smoothedAudio[i] += (gained - smoothedAudio[i]) * rate;
   }
 }
 
 // ── Smoothed radii — persist so size can't jump faster than RADIUS_EASE ─
 let smoothOuterR = 100, smoothInnerR = 50;
+
+// ── Smoothed LED colours — rate controlled by ledSpeedOSC ────────────
+let ledRs = 0, ledGs = 0, ledBs = 0;
 
 // ── Transient detector — spikes when a sudden loud event appears ──────
 // Used by P4 Jazz to jitter spiral centres on voice stabs / drum hits
@@ -1689,6 +1639,19 @@ function drawCanvas() {
     ctx.fillStyle = `rgba(0,0,0,${al * 0.85})`;
   }
   ctx.fillRect(0, 0, W, H);
+
+  // ── Frame Rate throttle (frameROSC) ──────────────────────────────
+  // Background fade always runs every frame for smooth trails.
+  // New pattern shapes are only drawn every N frames → strobing / slow-motion.
+  frameSkipCount++;
+  if (frameSkipCount % derived.frameR !== 0) {
+    ctx.globalCompositeOperation = 'source-over';
+    if (beatFlash > 0.01) {
+      ctx.fillStyle = `rgba(255,255,255,${beatFlash * 0.13})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+    return;
+  }
 
   // ── Draw pattern ──────────────────────────────────────────────────
   ctx.globalCompositeOperation = 'difference';
@@ -1801,7 +1764,14 @@ function drawRings(cx, cy, outerR, innerR, cr, cg, cb, al, density, pattern) {
 //   transient                  → all layers briefly expand outward
 // ────────────────────────────────────────────────────────────────────
 function drawJazzEnsemble(cx, cy, cr, cg, cb, al) {
-  const maxR = Math.min(canvas.width, canvas.height) * 0.42;
+  // diamOSC scales max radius; densityOSC scales layer counts
+  const screenMax = Math.min(canvas.width, canvas.height) * 0.45;
+  const maxR      = clamp(derived.diam * 0.52, 60, screenMax);
+  const dens      = derived.density;  // 6–20
+  const numArcs   = Math.max(2, Math.round(map(dens, 6, 20, 2, 7)));
+  const numStabs4 = Math.max(4, Math.round(map(dens, 6, 20, 4, 16)));
+  const numStabs5 = Math.max(6, Math.round(map(dens, 6, 20, 6, 22)));
+  const numStabs6 = Math.max(12, Math.round(map(dens, 6, 20, 12, 36)));
 
   // ── Audio reads ───────────────────────────────────────────────────
   const b0 = smoothedAudio[0] / 100;  // sub-bass / kick
@@ -1816,7 +1786,6 @@ function drawJazzEnsemble(cx, cy, cr, cg, cb, al) {
   const surge = 1 + transientLevel * 0.22;
 
   // Warm colour blend — user colour tinted toward jazz-club palette
-  // Bass:  amber-orange   Mid: warm gold   High: bright cream
   const mkCol = (base, rAdd, gAdd, bAdd, a) =>
     `rgba(${Math.min(255,Math.round(base[0]*0.4+rAdd*0.6))},` +
          `${Math.min(255,Math.round(base[1]*0.4+gAdd*0.6))},` +
@@ -1854,8 +1823,8 @@ function drawJazzEnsemble(cx, cy, cr, cg, cb, al) {
   const arcRot = patAngle * 0.55;
   const arcLen = Math.PI * (0.45 + b3 * 0.45);  // arc span breathes with chord
 
-  for (let i = 0; i < 4; i++) {
-    const start = arcRot + (i / 4) * Math.PI * 2 + n3off * (1 + i * 0.3);
+  for (let i = 0; i < numArcs; i++) {
+    const start = arcRot + (i / numArcs) * Math.PI * 2 + n3off * (1 + i * 0.3);
     ctx.beginPath();
     ctx.arc(cx, cy, arcR, start, start + arcLen);
     ctx.strokeStyle = mkCol(userC, 200, 165, 35,
@@ -1864,13 +1833,13 @@ function drawJazzEnsemble(cx, cy, cr, cg, cb, al) {
     ctx.stroke();
   }
 
-  // ── LAYER 3: Stab lines — 8 lines for band 4 (upper-mid) ─────────
+  // ── LAYER 3: Stab lines — band 4 (upper-mid) ─────────────────────
   const stabRot4  = patAngle * 1.25;
   const innerR4   = maxR * 0.10;
   const outerR4   = Math.max(innerR4 + 4, innerR4 + maxR * (0.04 + b4 * 0.28) * surge);
 
-  for (let i = 0; i < 8; i++) {
-    const ang = stabRot4 + (i / 8) * Math.PI * 2;
+  for (let i = 0; i < numStabs4; i++) {
+    const ang = stabRot4 + (i / numStabs4) * Math.PI * 2;
     ctx.beginPath();
     ctx.moveTo(cx + Math.cos(ang) * innerR4, cy + Math.sin(ang) * innerR4);
     ctx.lineTo(cx + Math.cos(ang) * outerR4, cy + Math.sin(ang) * outerR4);
@@ -1879,13 +1848,13 @@ function drawJazzEnsemble(cx, cy, cr, cg, cb, al) {
     ctx.stroke();
   }
 
-  // ── LAYER 4: Whistle/hi-hat — 12 lines for band 5 ────────────────
+  // ── LAYER 4: Whistle/hi-hat — band 5 ────────────────────────────
   const stabRot5  = -patAngle * 1.75 + n1off * 1.5;
   const innerR5   = maxR * 0.16;
   const outerR5   = Math.max(innerR5 + 3, innerR5 + maxR * (0.025 + b5 * 0.20) * surge);
 
-  for (let i = 0; i < 12; i++) {
-    const ang = stabRot5 + (i / 12) * Math.PI * 2;
+  for (let i = 0; i < numStabs5; i++) {
+    const ang = stabRot5 + (i / numStabs5) * Math.PI * 2;
     ctx.beginPath();
     ctx.moveTo(cx + Math.cos(ang) * innerR5, cy + Math.sin(ang) * innerR5);
     ctx.lineTo(cx + Math.cos(ang) * outerR5, cy + Math.sin(ang) * outerR5);
@@ -1894,14 +1863,14 @@ function drawJazzEnsemble(cx, cy, cr, cg, cb, al) {
     ctx.stroke();
   }
 
-  // ── LAYER 5: Cymbal shimmer — 24 sparks, only on hit (band 6) ────
+  // ── LAYER 5: Cymbal shimmer — band 6, only on hit ────────────────
   if (b6 > 0.12) {
     const stabRot6 = patAngle * 3.0 + n2off * 2.5;
     const innerR6  = maxR * 0.20;
     const outerR6  = innerR6 + maxR * 0.018 * b6 * 3 * surge;
 
-    for (let i = 0; i < 24; i++) {
-      const ang = stabRot6 + (i / 24) * Math.PI * 2;
+    for (let i = 0; i < numStabs6; i++) {
+      const ang = stabRot6 + (i / numStabs6) * Math.PI * 2;
       ctx.beginPath();
       ctx.moveTo(cx + Math.cos(ang) * innerR6, cy + Math.sin(ang) * innerR6);
       ctx.lineTo(cx + Math.cos(ang) * outerR6, cy + Math.sin(ang) * outerR6);
@@ -1992,10 +1961,17 @@ function updateDMXStrip() {
   }
 
   // ── LED bar indicators ───────────────────────────────────────────
-  const bf = beatFlash * 35;
-  const ledR = Math.min(255, Math.round(clamp(map(audioData[1],30,100,0,255),0,255) * state.redLEDOSC)   + bf);
-  const ledG = Math.min(255, Math.round(clamp(map(audioData[3],30,100,0,255),0,255) * state.greenLEDOSC) + bf);
-  const ledB = Math.min(255, Math.round(clamp(map(audioData[2],30,100,0,255),0,255) * state.blueLEDOSC)  + bf);
+  // ledSpeedOSC controls how quickly LED colours chase the audio target.
+  // High speed → instant response. Low speed → slow colour trailing.
+  const ledRate = map(derived.ledSpeed, 31, 2, 0.03, 0.95);
+  const bf      = beatFlash * 35;
+  const tgtR    = Math.min(255, clamp(map(smoothedAudio[1],30,100,0,255),0,255) * state.redLEDOSC   + bf);
+  const tgtG    = Math.min(255, clamp(map(smoothedAudio[3],30,100,0,255),0,255) * state.greenLEDOSC + bf);
+  const tgtB    = Math.min(255, clamp(map(smoothedAudio[2],30,100,0,255),0,255) * state.blueLEDOSC  + bf);
+  ledRs += (tgtR - ledRs) * ledRate;
+  ledGs += (tgtG - ledGs) * ledRate;
+  ledBs += (tgtB - ledBs) * ledRate;
+  const ledR = Math.round(ledRs), ledG = Math.round(ledGs), ledB = Math.round(ledBs);
 
   for (let i = 0; i < 6; i++) {
     const el = $('led-' + i);
@@ -2081,7 +2057,8 @@ function drawPTCanvas() {
 // ════════════════════════════════════════════════════════════════════
 // MAIN LOOP
 // ════════════════════════════════════════════════════════════════════
-let frameCount = 0;
+let frameCount     = 0;
+let frameSkipCount = 0;  // for frameROSC throttling
 
 function loop(ts) {
   const t = ts / 1000;
