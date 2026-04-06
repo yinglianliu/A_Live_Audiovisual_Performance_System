@@ -2138,17 +2138,27 @@ function drawInfiniteSquares(cx, cy, W, H, cr, cg, cb, al) {
   const bass  = smoothedAudio[1] / 100;
   const mid   = smoothedAudio[3] / 100;
   const high  = smoothedAudio[5] / 100;
+  const sub   = smoothedAudio[0] / 100;
 
-  // Zoom speed: audio-reactive + BPM kick
-  const zoomSpeed = derived.speed * 1.8 + bass * 0.055 + beatFlash * 0.04;
+  // ── Zoom speed ────────────────────────────────────────────────────
+  // Design: near-still at silence, punchy zoom on bass/kick hits.
+  // zoomAudio combines sub-bass (kick impact) + bass (body).
+  const zoomAudio = sub * 0.4 + bass * 0.6;   // 0→1 weighted audio level
+
+  // Base: very slow constant drift (barely perceptible at silence).
+  // Audio: main driver — loud bass = 5× speed amplification.
+  // This makes the difference between quiet and loud clearly visible.
+  const zoomSpeed = derived.speed * 0.30
+                  + zoomAudio * derived.speed * 5.5
+                  + beatFlash * 0.022;
   sqZoomPhase += zoomSpeed;
 
   // Seamless phase modulo — keep phase in [0, LOG_R)
   const phase  = sqZoomPhase % LOG_R;
   const zoomBase = Math.exp(phase);  // 1 → ZOOM_RATIO, then wraps
 
-  // Twist: rotation accumulates per level, driven by mid freq
-  const twistPerLevel = derived.speed * 0.25 + mid * 0.18;
+  // Twist: rotation per level — snaps hard on mid-freq hits
+  const twistPerLevel = derived.speed * 0.20 + mid * 0.30 * (1 + bass * 0.8);
 
   // Diagonal of canvas → max square half-diagonal needed
   const maxHalf = Math.sqrt(W * W + H * H) * 0.65;
@@ -2170,11 +2180,13 @@ function drawInfiniteSquares(cx, cy, W, H, cr, cg, cb, al) {
     const gg = Math.round(lerp(240 + shimmer * 50, cg, t));
     const bb = Math.round(lerp(255,               cb, t));
 
-    // Opacity: full near edge (visible), fades at tiny center
-    const alpha = al * t * (0.25 + (1 - t) * 0.50) * (0.5 + bass * 0.5);
+    // Opacity: near-zero at silence → bright on audio hit
+    // zoomAudio drives visibility so quiet passages feel "dim" and
+    // bass hits make squares flash into view clearly.
+    const alpha = al * t * (0.10 + (1 - t) * 0.25) * (0.15 + zoomAudio * 0.85);
 
-    // Line width: thicker near edge, hairline at center
-    const lw = 0.5 + t * (2.0 + bass * 3.0);
+    // Line width: thin at silence, bold stroke on bass
+    const lw = 0.4 + t * (0.8 + bass * 4.5);
 
     ctx.save();
     ctx.translate(cx, cy);
