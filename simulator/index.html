@@ -1542,6 +1542,45 @@ function updateTransient() {
   prevPeak        = prevPeak * 0.90 + peak  * 0.10;   // slow follower
 }
 
+// ── P4 Jazz Ensemble — spring physics & particle system state ─────────
+// Spring array: 4 independent mass-spring-dampers driven by audio envelopes
+// Each spring drives a different geometric deformation.
+const JAZZ_SPRINGS = 4;
+const jazzSpringPos = new Float32Array(JAZZ_SPRINGS).fill(0.35); // current extension 0-1
+const jazzSpringVel = new Float32Array(JAZZ_SPRINGS).fill(0);    // velocity
+
+// Particle pool — pre-allocated to avoid GC spikes
+const JAZZ_MAX_P = 280;
+const jazzPx    = new Float32Array(JAZZ_MAX_P);  // x position (absolute)
+const jazzPy    = new Float32Array(JAZZ_MAX_P);  // y position
+const jazzPvx   = new Float32Array(JAZZ_MAX_P);  // velocity x
+const jazzPvy   = new Float32Array(JAZZ_MAX_P);  // velocity y
+const jazzPlife = new Float32Array(JAZZ_MAX_P);  // remaining life 0→1 (1=fresh)
+const jazzPtype = new Uint8Array(JAZZ_MAX_P);    // 0=warm-ember, 1=lipstick-burst
+let jazzPcount  = 0;
+let jazzPrevTransient = 0;   // used to detect rising edge for explosion trigger
+
+// Hard-cut visual state machine
+let jazzState      = 0;      // 0=bass-rings, 1=piano-spokes, 2=orbital, 3=grid-chaos
+let jazzBeatCount  = 0;      // counts BPM beats for state switching
+let jazzPrevBeatFlash = 0;   // edge detect on beatFlash
+
+// Spawn N particles at (ox,oy) with given type and speed scale
+function jazzSpawnParticles(ox, oy, n, type, speed) {
+  for (let i = 0; i < n; i++) {
+    const slot = jazzPcount % JAZZ_MAX_P;
+    const ang  = Math.random() * Math.PI * 2;
+    const spd  = speed * (0.4 + Math.random() * 0.6);
+    jazzPx[slot]    = ox;
+    jazzPy[slot]    = oy;
+    jazzPvx[slot]   = Math.cos(ang) * spd;
+    jazzPvy[slot]   = Math.sin(ang) * spd;
+    jazzPlife[slot] = 0.9 + Math.random() * 0.1;
+    jazzPtype[slot] = type;
+    jazzPcount++;
+  }
+}
+
 // ════════════════════════════════════════════════════════════════════
 // CANVAS RENDERING
 // ════════════════════════════════════════════════════════════════════
@@ -1736,124 +1775,351 @@ function drawRings(cx, cy, outerR, innerR, cr, cg, cb, al, density, pattern) {
 // all drawn simultaneously with difference blend — like a jazz band
 // where every instrument is visible at once.
 //
-//   bands 0-1  (bass section)  → two large slow ellipses
-//   bands 2-3  (piano comping) → 4 rotating arc segments
-//   bands 4-5  (upper voices)  → 8 / 12 radial stab lines
-//   band  6    (cymbal shimmer)→ 24 tiny sparks (on hit only)
-//   transient                  → all layers briefly expand outward
-// ────────────────────────────────────────────────────────────────────
+// P4 JAZZ ENSEMBLE — v2
+// ─────────────────────────────────────────────────────────────────────
+//  Three core systems:
+//  1. SPRING-PHYSICS ELASTIC GEOMETRY
+//     Four mass-spring-dampers driven by bass/piano envelope followers.
+//     Each spring controls a different geometric deformation — producing
+//     the "Q弹" (bouncy, syncopated) feeling of funk bass & jazz piano.
+//  2. PARTICLE SYSTEM WITH TURBULENCE
+//     Up to 280 particles live in a pre-allocated pool.
+//     - Ambient: trickle of warm embers driven by high-freq (bands 5-6)
+//     - Transient EXPLOSION: when a sudden loud vocal/drum hit is detected,
+//       spawn a burst of "lipstick" hot-pink/magenta particles.
+//  3. HARD-CUT VISUAL STATE MACHINE
+//     jazzState cycles 0→3 on every 4 BPM beats (hard cut, no crossfade).
+//     Each state uses a different geometry topology.
+// ─────────────────────────────────────────────────────────────────────
+
+// Spring physics constants
+const SPRING_K    = 0.12;   // stiffness — bigger = snappier bounce
+const SPRING_DAMP = 0.72;   // damping — smaller = more oscillation
+
 function drawJazzEnsemble(cx, cy, cr, cg, cb, al) {
-  // diamOSC scales max radius; densityOSC scales layer counts
   const screenMax = Math.min(canvas.width, canvas.height) * 0.45;
   const maxR      = clamp(derived.diam * 0.52, 60, screenMax);
-  const dens      = derived.density;  // 6–20
-  const numArcs   = Math.max(2, Math.round(map(dens, 6, 20, 2, 7)));
-  const numStabs4 = Math.max(4, Math.round(map(dens, 6, 20, 4, 16)));
-  const numStabs5 = Math.max(6, Math.round(map(dens, 6, 20, 6, 22)));
-  const numStabs6 = Math.max(12, Math.round(map(dens, 6, 20, 12, 36)));
+  const dens      = derived.density;  // 6-20
 
-  // ── Audio reads ───────────────────────────────────────────────────
+  // ── Audio reads (raw + smoothed) ─────────────────────────────────
   const b0 = smoothedAudio[0] / 100;  // sub-bass / kick
   const b1 = smoothedAudio[1] / 100;  // funk bass
-  const b2 = smoothedAudio[2] / 100;  // low-mid piano voicing
-  const b3 = smoothedAudio[3] / 100;  // mid piano / melody
+  const b2 = smoothedAudio[2] / 100;  // low-mid piano
+  const b3 = smoothedAudio[3] / 100;  // mid melody
   const b4 = smoothedAudio[4] / 100;  // upper-mid
-  const b5 = smoothedAudio[5] / 100;  // presence / whistle
+  const b5 = smoothedAudio[5] / 100;  // presence / whistle / voice
   const b6 = smoothedAudio[6] / 100;  // cymbal / brilliance
 
-  // Transient: all layers push outward slightly on sudden loud hit
-  const surge = 1 + transientLevel * 0.22;
+  // ── SYSTEM 3: Hard-cut state machine ─────────────────────────────
+  // Detect rising edge of beatFlash (set by updateBPMBeat each beat)
+  if (beatFlash > 0.85 && jazzPrevBeatFlash <= 0.85) {
+    jazzBeatCount++;
+    // Switch state every 4 beats — hard cut, no lerp
+    if (jazzBeatCount % 4 === 0) {
+      jazzState = (jazzState + 1) % 4;
+    }
+  }
+  jazzPrevBeatFlash = beatFlash;
 
-  // Warm colour blend — user colour tinted toward jazz-club palette
-  const mkCol = (base, rAdd, gAdd, bAdd, a) =>
-    `rgba(${Math.min(255,Math.round(base[0]*0.4+rAdd*0.6))},` +
-         `${Math.min(255,Math.round(base[1]*0.4+gAdd*0.6))},` +
-         `${Math.min(255,Math.round(base[2]*0.3+bAdd*0.7))},${a})`;
-  const userC = [cr, cg, cb];
+  // ── SYSTEM 1: Spring physics ──────────────────────────────────────
+  // Spring targets driven by audio envelopes
+  const targets = [
+    b0 * 0.7 + b1 * 0.3,             // spring 0: kick + bass → outer ring radius
+    b1 * 0.5 + b2 * 0.5,             // spring 1: bass + piano → inner ellipse squeeze
+    b2 * 0.4 + b3 * 0.6,             // spring 2: piano voicing → arc span / rotation skew
+    b4 * 0.3 + b5 * 0.4 + b6 * 0.3, // spring 3: upper-mid + presence → spoke extension
+  ];
 
-  // ── LAYER 1: Bass ellipses (bands 0-1) ───────────────────────────
-  const r1 = Math.max(18, maxR * (0.28 + b0 * 0.52) * surge);
-  const r2 = Math.max(14, maxR * (0.22 + b1 * 0.48) * surge);
+  for (let i = 0; i < JAZZ_SPRINGS; i++) {
+    // Hooke's law: F = -k * displacement  +  damping
+    jazzSpringVel[i] += (targets[i] - jazzSpringPos[i]) * SPRING_K;
+    jazzSpringVel[i] *= SPRING_DAMP;
+    jazzSpringPos[i] += jazzSpringVel[i];
+    jazzSpringPos[i] = clamp(jazzSpringPos[i], 0, 1.25);  // allow slight overshoot
+  }
+  const sp0 = jazzSpringPos[0];  // 0-1+ elastic bass ring
+  const sp1 = jazzSpringPos[1];  // 0-1+ elastic ellipse squeeze
+  const sp2 = jazzSpringPos[2];  // 0-1+ piano arc
+  const sp3 = jazzSpringPos[3];  // 0-1+ high spoke
 
-  // Ellipse A — slow clockwise, eccentricity 1.25 × 0.75
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(patAngle * 0.25 + n1off * 0.6);
-  ctx.beginPath();
-  ctx.ellipse(0, 0, r1 * 1.25, r1 * 0.75, 0, 0, Math.PI * 2);
-  ctx.strokeStyle = mkCol(userC, 225, 105, 15, al * (0.35 + b0 * 0.55));
-  ctx.lineWidth   = 1.4 + b0 * 3.0;
-  ctx.stroke();
-  ctx.restore();
+  // ── SYSTEM 2: Particle system ─────────────────────────────────────
 
-  // Ellipse B — slow counter-clockwise, opposite eccentricity
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(-patAngle * 0.18 + n2off * 0.5);
-  ctx.beginPath();
-  ctx.ellipse(0, 0, r2 * 0.8, r2 * 1.35, 0, 0, Math.PI * 2);
-  ctx.strokeStyle = mkCol(userC, 175, 30, 55, al * (0.30 + b1 * 0.52));
-  ctx.lineWidth   = 1.2 + b1 * 2.5;
-  ctx.stroke();
-  ctx.restore();
-
-  // ── LAYER 2: Piano comping — 4 rotating arc segments (bands 2-3) ─
-  const arcR   = Math.max(12, maxR * (0.14 + (b2 + b3) * 0.20) * surge);
-  const arcRot = patAngle * 0.55;
-  const arcLen = Math.PI * (0.45 + b3 * 0.45);  // arc span breathes with chord
-
-  for (let i = 0; i < numArcs; i++) {
-    const start = arcRot + (i / numArcs) * Math.PI * 2 + n3off * (1 + i * 0.3);
-    ctx.beginPath();
-    ctx.arc(cx, cy, arcR, start, start + arcLen);
-    ctx.strokeStyle = mkCol(userC, 200, 165, 35,
-      al * (0.28 + b2 * 0.45) * (0.55 + i * 0.15));
-    ctx.lineWidth   = 1.0 + b3 * 1.8;
-    ctx.stroke();
+  // Detect transient rising edge → explosion
+  const wasLow = jazzPrevTransient < 0.35;
+  jazzPrevTransient = transientLevel;
+  if (wasLow && transientLevel >= 0.35) {
+    // Lipstick burst — hot pink / electric red / vivid magenta
+    jazzSpawnParticles(cx, cy, Math.round(map(dens, 6, 20, 18, 45)), 1,
+      maxR * (0.018 + transientLevel * 0.032));
   }
 
-  // ── LAYER 3: Stab lines — band 4 (upper-mid) ─────────────────────
-  const stabRot4  = patAngle * 1.25;
-  const innerR4   = maxR * 0.10;
-  const outerR4   = Math.max(innerR4 + 4, innerR4 + maxR * (0.04 + b4 * 0.28) * surge);
-
-  for (let i = 0; i < numStabs4; i++) {
-    const ang = stabRot4 + (i / numStabs4) * Math.PI * 2;
-    ctx.beginPath();
-    ctx.moveTo(cx + Math.cos(ang) * innerR4, cy + Math.sin(ang) * innerR4);
-    ctx.lineTo(cx + Math.cos(ang) * outerR4, cy + Math.sin(ang) * outerR4);
-    ctx.strokeStyle = mkCol(userC, 240, 195, 70, al * (0.18 + b4 * 0.65));
-    ctx.lineWidth   = 0.8 + b4 * 1.6;
-    ctx.stroke();
+  // Ambient high-freq trickle — warm orange embers, driven by bands 5-6
+  const trickleRate = (b5 * 0.65 + b6 * 0.35) * 0.55;
+  if (Math.random() < trickleRate) {
+    const ang = Math.random() * Math.PI * 2;
+    const r   = maxR * (0.25 + Math.random() * 0.45);
+    jazzSpawnParticles(
+      cx + Math.cos(ang) * r * 0.6,
+      cy + Math.sin(ang) * r * 0.6,
+      1, 0, maxR * 0.008 * (0.5 + b5));
   }
 
-  // ── LAYER 4: Whistle/hi-hat — band 5 ────────────────────────────
-  const stabRot5  = -patAngle * 1.75 + n1off * 1.5;
-  const innerR5   = maxR * 0.16;
-  const outerR5   = Math.max(innerR5 + 3, innerR5 + maxR * (0.025 + b5 * 0.20) * surge);
+  // Update & draw particles
+  // Turbulence field: perlin-like drift based on b5+b6 and position
+  const turbStr = (b5 + b6) * 0.55 + 0.08;
+  for (let i = 0; i < JAZZ_MAX_P; i++) {
+    if (jazzPlife[i] <= 0) continue;
 
-  for (let i = 0; i < numStabs5; i++) {
-    const ang = stabRot5 + (i / numStabs5) * Math.PI * 2;
+    // Turbulence: rotate velocity slightly based on position (cheap swirl)
+    const tx = (jazzPx[i] - cx) / maxR;
+    const ty = (jazzPy[i] - cy) / maxR;
+    const swirl = turbStr * 0.04;
+    jazzPvx[i] += (-ty * swirl);
+    jazzPvy[i] += ( tx * swirl);
+    // Slight gravity / drag
+    jazzPvy[i] += 0.012;
+    jazzPvx[i] *= 0.97;
+    jazzPvy[i] *= 0.97;
+
+    jazzPx[i] += jazzPvx[i];
+    jazzPy[i] += jazzPvy[i];
+    jazzPlife[i] -= jazzPtype[i] === 1 ? 0.022 : 0.016;  // lipstick fades faster
+
+    const life = Math.max(0, jazzPlife[i]);
+    const sz   = jazzPtype[i] === 1
+      ? (1.5 + (1 - life) * 2.5)    // lipstick: grows then fades
+      : (0.8 + life * 1.2);          // ember: shrinks over time
+
     ctx.beginPath();
-    ctx.moveTo(cx + Math.cos(ang) * innerR5, cy + Math.sin(ang) * innerR5);
-    ctx.lineTo(cx + Math.cos(ang) * outerR5, cy + Math.sin(ang) * outerR5);
-    ctx.strokeStyle = mkCol(userC, 255, 228, 110, al * (0.14 + b5 * 0.72));
-    ctx.lineWidth   = 0.5 + b5 * 1.0;
-    ctx.stroke();
+    ctx.arc(jazzPx[i], jazzPy[i], sz, 0, Math.PI * 2);
+
+    if (jazzPtype[i] === 1) {
+      // Lipstick palette: hot pink → magenta → electric red
+      const phase = 1 - life;
+      const rr = Math.round(255);
+      const gg = Math.round(map(phase, 0, 1, 10, 80));
+      const bb = Math.round(map(phase, 0, 1, 120, 30));
+      ctx.fillStyle = `rgba(${rr},${gg},${bb},${al * life * 0.88})`;
+    } else {
+      // Warm ember palette: yellow → amber → deep orange
+      const rr = 255;
+      const gg = Math.round(180 + life * 60);
+      const bb = Math.round(life * 50);
+      ctx.fillStyle = `rgba(${rr},${gg},${bb},${al * life * 0.65})`;
+    }
+    ctx.fill();
   }
 
-  // ── LAYER 5: Cymbal shimmer — band 6, only on hit ────────────────
-  if (b6 > 0.12) {
-    const stabRot6 = patAngle * 3.0 + n2off * 2.5;
-    const innerR6  = maxR * 0.20;
-    const outerR6  = innerR6 + maxR * 0.018 * b6 * 3 * surge;
+  // ── STATE-DEPENDENT GEOMETRY ─────────────────────────────────────
+  // Four visual topologies — hard-cut on jazzState
+  // All use spring-physics values for elastic deformation.
 
-    for (let i = 0; i < numStabs6; i++) {
-      const ang = stabRot6 + (i / numStabs6) * Math.PI * 2;
+  // Colour helper — blend user colour with state-specific accent
+  const mkCol = (r, g, b, a) => `rgba(${r|0},${g|0},${b|0},${a.toFixed(3)})`;
+  const lerp  = (a, b, t) => a + (b - a) * t;
+
+  // User colour weight (subtle tint toward jazz palette)
+  const uR = cr * 0.3, uG = cg * 0.25, uB = cb * 0.2;
+
+  if (jazzState === 0) {
+    // ── STATE 0: ELASTIC BASS RINGS ──────────────────────────────
+    // Spring-deformed concentric ellipses, axis ratio driven by sp0/sp1.
+    // Outer ring breathes with kick+bass, inner ring squeezes on piano attack.
+    const numRings = Math.max(2, Math.round(map(dens, 6, 20, 2, 5)));
+
+    for (let i = 0; i < numRings; i++) {
+      const frac  = i / numRings;
+      const r     = maxR * (0.15 + frac * 0.75) * (0.55 + sp0 * 0.55);
+      const sqzX  = 1.0 + sp1 * 0.5 - frac * 0.15;   // spring squeeze X axis
+      const sqzY  = 1.0 - sp1 * 0.35 + frac * 0.10;  // spring squeeze Y axis
+      const rot   = patAngle * (0.2 + frac * 0.35) + n1off * (1 + i * 0.4);
+      const alpha = al * (0.55 - frac * 0.12 + sp0 * 0.30);
+      const lw    = 1.0 + sp0 * 3.5 * (1 - frac * 0.5);
+
+      // Colour: warm amber (state 0), modulated by ring index
+      const rr = lerp(uR + 220, uR + 180, frac);
+      const gg = lerp(uG + 100, uG + 60,  frac);
+      const bb = lerp(uB + 10,  uB + 40,  frac);
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(rot);
       ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(ang) * innerR6, cy + Math.sin(ang) * innerR6);
-      ctx.lineTo(cx + Math.cos(ang) * outerR6, cy + Math.sin(ang) * outerR6);
-      ctx.strokeStyle = `rgba(255,248,200,${al * b6 * 0.85})`;
+      ctx.ellipse(0, 0, Math.max(4, r * sqzX), Math.max(4, r * sqzY), 0, 0, Math.PI * 2);
+      ctx.strokeStyle = mkCol(clamp(rr, 0, 255), clamp(gg, 0, 255), clamp(bb, 0, 255), alpha);
+      ctx.lineWidth   = lw;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Accent: small pulse disc at centre on high spring overshoot
+    if (sp0 > 0.8) {
+      const pulseR = maxR * 0.06 * (sp0 - 0.8) * 5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, pulseR, 0, Math.PI * 2);
+      ctx.strokeStyle = mkCol(255, 200, 60, al * (sp0 - 0.8) * 1.5);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+  } else if (jazzState === 1) {
+    // ── STATE 1: ELASTIC PIANO SPOKES ────────────────────────────
+    // Radial spoke system — sp2 drives spoke length (piano comping).
+    // Spokes snap outward on chord hit, spring back slowly.
+    const numSpokes = Math.max(6, Math.round(map(dens, 6, 20, 6, 20)));
+    const baseOff   = patAngle * 0.8 + n2off;
+    const innerFrac = 0.08 + sp1 * 0.06;
+    const outerFrac = 0.18 + sp2 * 0.65;  // spring-driven length
+
+    for (let i = 0; i < numSpokes; i++) {
+      const ang    = baseOff + (i / numSpokes) * Math.PI * 2;
+      const phase  = i / numSpokes;
+      const jitter = (Math.sin(patAngle * 3 + phase * 7 + n3off * 4) * 0.5 + 0.5) * sp2 * 0.18;
+      const rInner = maxR * innerFrac;
+      const rOuter = maxR * (outerFrac + jitter);
+
+      // Colour: cool electric blue → teal → white for piano
+      const rr = lerp(uR + 60,  uR + 200, phase);
+      const gg = lerp(uG + 180, uG + 220, phase);
+      const bb = lerp(uB + 240, uB + 180, phase);
+      const alpha = al * (0.30 + sp2 * 0.50);
+
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(ang) * rInner, cy + Math.sin(ang) * rInner);
+      ctx.lineTo(cx + Math.cos(ang) * rOuter, cy + Math.sin(ang) * rOuter);
+      ctx.strokeStyle = mkCol(clamp(rr,0,255), clamp(gg,0,255), clamp(bb,0,255), alpha);
+      ctx.lineWidth   = 0.7 + sp2 * 2.2;
+      ctx.stroke();
+    }
+
+    // Rotating arc at mid-radius — piano comping rhythm
+    const arcR   = maxR * (0.30 + sp2 * 0.25);
+    const arcLen = Math.PI * (0.3 + sp2 * 0.5);
+    const arcRot = patAngle * 1.1;
+    const numArcs = Math.max(2, Math.round(map(dens, 6, 20, 2, 5)));
+    for (let i = 0; i < numArcs; i++) {
+      const start = arcRot + (i / numArcs) * Math.PI * 2 + n1off;
+      ctx.beginPath();
+      ctx.arc(cx, cy, arcR, start, start + arcLen);
+      ctx.strokeStyle = mkCol(clamp(uR+80,0,255), clamp(uG+210,0,255), clamp(uB+255,0,255),
+        al * (0.22 + sp2 * 0.45));
+      ctx.lineWidth = 1.2 + sp2 * 2.0;
+      ctx.stroke();
+    }
+
+  } else if (jazzState === 2) {
+    // ── STATE 2: ORBITING CONSTELLATION ──────────────────────────
+    // Points orbit the centre at different radii, trails drawn as arcs.
+    // sp0+sp1 modulate orbital radii; sp3 drives brightness/scatter.
+    const numOrbiters = Math.max(4, Math.round(map(dens, 6, 20, 4, 14)));
+    const now         = patAngle;
+
+    for (let i = 0; i < numOrbiters; i++) {
+      const phase   = (i / numOrbiters) * Math.PI * 2;
+      const rBase   = maxR * (0.12 + (i % 3) * 0.18);
+      const r       = rBase * (0.6 + sp0 * 0.6 + Math.sin(now * 2 + phase) * sp1 * 0.25);
+      const speed   = 0.4 + (i % 4) * 0.22;
+      const ang     = now * speed + phase + n3off * (1 + i * 0.5);
+      const px      = cx + Math.cos(ang) * r;
+      const py      = cy + Math.sin(ang) * r;
+
+      // Trail arc
+      const trailLen = Math.PI * (0.15 + sp3 * 0.30);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, ang - trailLen, ang);
+      const rr = lerp(uR + 255, uR + 160, i / numOrbiters);
+      const gg = lerp(uG + 80,  uG + 230, i / numOrbiters);
+      const bb = lerp(uB + 180, uB + 80,  i / numOrbiters);
+      ctx.strokeStyle = mkCol(clamp(rr,0,255), clamp(gg,0,255), clamp(bb,0,255),
+        al * (0.20 + sp0 * 0.50));
+      ctx.lineWidth = 1.0 + sp3 * 2.0;
+      ctx.stroke();
+
+      // Dot at orbit head
+      ctx.beginPath();
+      ctx.arc(px, py, 1.5 + sp3 * 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = mkCol(clamp(rr,0,255), clamp(gg,0,255), clamp(bb,0,255),
+        al * (0.55 + sp3 * 0.40));
+      ctx.fill();
+    }
+
+  } else {
+    // ── STATE 3: GRID CHAOS ───────────────────────────────────────
+    // Rectangular grid of dots, positions displaced by spring physics.
+    // sp0 drives radial displacement, sp3 drives angular scatter.
+    // Looks like the visual is "losing its mind" — neurotic comedy rhythm.
+    const gridN  = Math.max(3, Math.round(map(dens, 6, 20, 3, 7)));
+    const step   = maxR * 1.6 / gridN;
+    const origin = { x: cx - maxR * 0.8, y: cy - maxR * 0.8 };
+
+    for (let row = 0; row <= gridN; row++) {
+      for (let col = 0; col <= gridN; col++) {
+        const gx  = origin.x + col * step;
+        const gy  = origin.y + row * step;
+        const dx  = gx - cx;
+        const dy  = gy - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > maxR * 1.05) continue;
+
+        // Spring-based radial displacement — grid "breathes"
+        const displaceR = sp0 * step * 0.55 * (dist / maxR);
+        const displaceAng = patAngle * 1.5 + n2off + (row + col) * 0.8;
+        const ndx = dist > 0.01 ? dx / dist : 0;
+        const ndy = dist > 0.01 ? dy / dist : 0;
+
+        // Angular scatter from sp3 — dots swing sideways on high-freq hit
+        const sideAng = displaceAng * 1.3 + sp3 * 2.0;
+        const px = gx + ndx * displaceR + Math.cos(sideAng) * sp3 * step * 0.35;
+        const py = gy + ndy * displaceR + Math.sin(sideAng) * sp3 * step * 0.35;
+
+        const normDist = clamp(dist / maxR, 0, 1);
+        const rr = lerp(uR + 255, uR + 100, normDist);
+        const gg = lerp(uG + 40,  uG + 210, normDist);
+        const bb = lerp(uB + 200, uB + 50,  normDist);
+        const sz = 1.5 + sp0 * 2.5 + (1 - normDist) * 1.5;
+        const alpha = al * (0.40 + sp0 * 0.45 + sp3 * 0.20) * (0.5 + (1 - normDist) * 0.5);
+
+        ctx.beginPath();
+        ctx.arc(px, py, sz, 0, Math.PI * 2);
+        ctx.fillStyle = mkCol(clamp(rr,0,255), clamp(gg,0,255), clamp(bb,0,255), alpha);
+        ctx.fill();
+      }
+    }
+
+    // Connecting lines between near neighbours — visual noise web
+    if (sp3 > 0.3) {
+      const lineAlpha = al * (sp3 - 0.3) * 0.5;
+      const numLines  = Math.round(map(dens, 6, 20, 4, 12));
+      for (let i = 0; i < numLines; i++) {
+        const ang1 = patAngle * 2.1 + (i / numLines) * Math.PI * 2 + n1off * 3;
+        const ang2 = ang1 + Math.PI * (0.3 + sp3 * 0.4);
+        const r1   = maxR * (0.3 + sp0 * 0.5);
+        const r2   = maxR * (0.15 + sp1 * 0.4);
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(ang1) * r1, cy + Math.sin(ang1) * r1);
+        ctx.lineTo(cx + Math.cos(ang2) * r2, cy + Math.sin(ang2) * r2);
+        ctx.strokeStyle = mkCol(clamp(uR+220,0,255), clamp(uG+80,0,255), clamp(uB+180,0,255),
+          lineAlpha);
+        ctx.lineWidth = 0.6 + sp3 * 1.5;
+        ctx.stroke();
+      }
+    }
+  }
+
+  // ── Cymbal shimmer overlay — all states ──────────────────────────
+  // Band 6 (cymbal / brilliance) adds a brief radial flash ring
+  if (b6 > 0.15) {
+    const numShimmer = Math.max(16, Math.round(map(dens, 6, 20, 16, 40)));
+    const shimmerR   = maxR * (0.20 + sp3 * 0.30);
+    const shimmerRot = patAngle * 3.5 + n2off * 2.5;
+    const shimOuter  = shimmerR + maxR * 0.025 * b6 * (1 + sp3);
+
+    for (let i = 0; i < numShimmer; i++) {
+      const ang = shimmerRot + (i / numShimmer) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(ang) * shimmerR,  cy + Math.sin(ang) * shimmerR);
+      ctx.lineTo(cx + Math.cos(ang) * shimOuter, cy + Math.sin(ang) * shimOuter);
+      ctx.strokeStyle = `rgba(255,248,220,${al * b6 * 0.75})`;
       ctx.lineWidth   = 0.4;
       ctx.stroke();
     }
