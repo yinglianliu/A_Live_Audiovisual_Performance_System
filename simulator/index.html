@@ -1764,8 +1764,8 @@ function drawCanvas() {
     // Metaballs: handled entirely inside drawMetaballs (full clear each frame)
     ctx.fillStyle = `rgba(0,0,0,1)`;
   } else if (p === 4) {
-    // Zoom squares: moderate trail → ghost echo of past squares
-    ctx.fillStyle = `rgba(0,0,0,${al * 0.80})`;
+    // Zoom squares: fast fade keeps squares sharp and punchy (rock feel)
+    ctx.fillStyle = `rgba(0,0,0,${clamp(al * 0.80 + 0.18, 0.35, 1)})`;
   } else {
     ctx.fillStyle = `rgba(0,0,0,${al * 0.85})`;
   }
@@ -2174,51 +2174,73 @@ function drawInfiniteSquares(cx, cy, W, H, cr, cg, cb, al) {
     const t   = Math.min(1, half / maxHalf);  // 0=small/center, 1=large/edge
     const rot = k * twistPerLevel + patAngle * 0.15 + n1off * (1 + k * 0.1);
 
-    // Colour: bright vivid center → user colour at edge, with high-freq shimmer
-    const shimmer = high * 0.4 * Math.sin(k * 1.3 + sqZoomPhase * 2);
-    const rr = Math.round(lerp(240 + shimmer * 80, cr, t));
-    const gg = Math.round(lerp(240 + shimmer * 50, cg, t));
-    const bb = Math.round(lerp(255,               cb, t));
+    // ── Colour: energy heat ramp ──────────────────────────────────
+    // Quiet: cool blue-white.  Loud bass: white → electric yellow → hot orange.
+    const heat = zoomAudio;
+    const rr = Math.round(lerp(160, 255, heat));
+    const gg = Math.round(lerp(200, lerp(255, 100, heat * 0.8), heat));
+    const bb = Math.round(lerp(255, lerp(255,  20, heat * 0.9), heat));
+    // Outer squares tinted by user audio colour
+    const rF = clamp(Math.round(lerp(rr, cr, t * 0.35)), 0, 255);
+    const gF = clamp(Math.round(lerp(gg, cg, t * 0.35)), 0, 255);
+    const bF = clamp(Math.round(lerp(bb, cb, t * 0.35)), 0, 255);
 
-    // Opacity: near-zero at silence → bright on audio hit
-    // zoomAudio drives visibility so quiet passages feel "dim" and
-    // bass hits make squares flash into view clearly.
-    const alpha = al * t * (0.10 + (1 - t) * 0.25) * (0.15 + zoomAudio * 0.85);
+    // ── Opacity: always readable, surges on bass ──────────────────
+    // Base 0.55 (inner) → 0.80 (outer), then audio adds up to +0.45
+    const alpha = clamp(al * (0.55 + t * 0.25 + heat * 0.45), 0, 1);
 
-    // Line width: thin at silence, bold stroke on bass
-    const lw = 0.4 + t * (0.8 + bass * 4.5);
+    // ── Line width: bold even at rest, massive on bass hit ────────
+    const lw = 1.8 + t * 1.5 + bass * 6.0;
 
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(rot);
     ctx.beginPath();
     ctx.rect(-half, -half, half * 2, half * 2);
-    ctx.strokeStyle = `rgba(${clamp(rr,0,255)},${clamp(gg,0,255)},${clamp(bb,0,255)},${alpha.toFixed(3)})`;
+    ctx.strokeStyle = `rgba(${rF},${gF},${bF},${alpha.toFixed(3)})`;
     ctx.lineWidth   = lw;
     ctx.stroke();
+
+    // Inner 20% of squares get a semi-transparent fill on loud bass —
+    // creates a solid "compressed" core that punches hard.
+    if (t < 0.22 && bass > 0.45) {
+      ctx.fillStyle = `rgba(${rF},${gF},${bF},${(al * bass * 0.22).toFixed(3)})`;
+      ctx.fill();
+    }
+
     ctx.restore();
   }
 
-  // Beat flash: fill the nearest-to-screen square with a brief white outline burst
+  // ── Full-screen bass flash — visible at loud rock levels ─────────
+  // Adds a brief bright veil on hard bass/kick hits for maximum impact.
+  if (zoomAudio > 0.65) {
+    const flashA = al * (zoomAudio - 0.65) * 0.55;
+    ctx.fillStyle = `rgba(255,240,200,${flashA.toFixed(3)})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // ── Beat flash: three concentric square bursts ────────────────────
   if (beatFlash > 0.05) {
-    const flashHalf = maxHalf * (0.80 + beatFlash * 0.15);
-    const flashRot  = patAngle * 0.15 + sqZoomPhase * twistPerLevel * N_LEVELS * 0.15;
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(flashRot);
-    ctx.beginPath();
-    ctx.rect(-flashHalf, -flashHalf, flashHalf * 2, flashHalf * 2);
-    ctx.strokeStyle = `rgba(255,255,255,${al * beatFlash * 0.65})`;
-    ctx.lineWidth   = beatFlash * 8;
-    ctx.stroke();
-    ctx.restore();
+    for (let f = 0; f < 3; f++) {
+      const flashHalf = maxHalf * (0.55 + f * 0.22 + beatFlash * 0.18);
+      const flashRot  = patAngle * 0.15 + f * 0.28;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(flashRot);
+      ctx.beginPath();
+      ctx.rect(-flashHalf, -flashHalf, flashHalf * 2, flashHalf * 2);
+      ctx.strokeStyle = `rgba(255,255,255,${(al * beatFlash * 0.88 / (f + 1)).toFixed(3)})`;
+      ctx.lineWidth   = beatFlash * 14 / (f * 0.7 + 1);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
-  // Centre dot — always visible, pulses with sub-bass
-  const dotR = 2 + smoothedAudio[0] / 100 * 6;
+  // Centre dot — pulses hard with sub-bass / kick
+  const dotR = 4 + sub * 18;
   ctx.beginPath();
   ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
-  ctx.fillStyle = `rgba(255,255,255,${al * 0.7})`;
+  ctx.fillStyle = `rgba(255,255,255,${clamp(al * (0.75 + sub * 0.25), 0, 1).toFixed(3)})`;
   ctx.fill();
 }
 
