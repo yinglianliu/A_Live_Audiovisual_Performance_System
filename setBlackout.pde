@@ -1,5 +1,3 @@
 void setBlackout() {
-  for(int i=1; i<40; i+=10){
-  dmxOutput.set(i,0);
-  }
+  for(int i = 0; i < 4; i++) dmxOutput.set(shutter + i*FIXTURE_STRIDE, 0);
 }

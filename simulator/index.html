@@ -1,0 +1,2897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live AV System — Simulator</title>
+  <style>
+
+    /* ── Reset & root ──────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #141414;
+      --panel:        #1e1e1e;
+      --panel-border: #2e2e2e;
+      --ctrl-bg:      #2a2a2a;
+      --ctrl-border:  #3a3a3a;
+      --accent:       #e8950a;   /* orange  — faders, active pattern */
+      --active:       #3ecf60;   /* green   — toggle ON */
+      --inactive:     #3a3a3a;   /* grey    — toggle OFF */
+      --danger:       #cf3e3e;   /* red     — blackout */
+      --blue:         #3e8ecf;   /* blue    — info / BPM */
+      --text:         #d0d0d0;
+      --text-dim:     #666;
+      --text-label:   #999;
+      --radius:       6px;
+      --tab-h:        38px;
+      --header-h:     44px;
+      --ctrl-panel-w: 340px;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 12px;
+      overflow: hidden;
+    }
+
+    /* ── App shell ─────────────────────────────────────────────────── */
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    /* ── Header ────────────────────────────────────────────────────── */
+    #header {
+      height: var(--header-h);
+      background: #111;
+      border-bottom: 1px solid var(--panel-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      flex-shrink: 0;
+    }
+
+    #header h1 {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+
+    #header-info {
+      display: flex;
+      gap: 18px;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    #header-info span { color: var(--text-label); }
+    #header-info strong { color: var(--text); font-weight: 400; }
+
+    /* ── Main area ─────────────────────────────────────────────────── */
+    #main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Control panel (left) ──────────────────────────────────────── */
+    #ctrl-panel {
+      width: var(--ctrl-panel-w);
+      flex-shrink: 0;
+      background: var(--panel);
+      border-right: 1px solid var(--panel-border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Tabs ──────────────────────────────────────────────────────── */
+    #tabs {
+      display: flex;
+      height: var(--tab-h);
+      background: #161616;
+      border-bottom: 1px solid var(--panel-border);
+      flex-shrink: 0;
+    }
+
+    .tab-btn {
+      flex: 1;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-dim);
+      font-family: inherit;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .tab-btn:hover { color: var(--text); }
+
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    /* ── Tab content ───────────────────────────────────────────────── */
+    #tab-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--ctrl-border) transparent;
+    }
+
+    #tab-content::-webkit-scrollbar { width: 4px; }
+    #tab-content::-webkit-scrollbar-track { background: transparent; }
+    #tab-content::-webkit-scrollbar-thumb { background: var(--ctrl-border); border-radius: 2px; }
+
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* ── Section headers inside tabs ──────────────────────────────── */
+    .section-title {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin: 14px 0 8px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .section-title:first-child { margin-top: 2px; }
+
+    /* ── Fader control ─────────────────────────────────────────────── */
+    .ctrl-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .ctrl-label {
+      width: 90px;
+      flex-shrink: 0;
+      font-size: 10px;
+      color: var(--text-label);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .ctrl-value {
+      width: 38px;
+      flex-shrink: 0;
+      font-size: 10px;
+      color: var(--accent);
+      text-align: right;
+    }
+
+    input[type="range"] {
+      flex: 1;
+      height: 4px;
+      appearance: none;
+      -webkit-appearance: none;
+      background: var(--ctrl-bg);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      border: 2px solid #111;
+      box-shadow: 0 0 4px rgba(232,149,10,0.5);
+    }
+
+    input[type="range"]::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      border: 2px solid #111;
+    }
+
+    input[type="range"].blue-fader::-webkit-slider-thumb { background: var(--blue); box-shadow: 0 0 4px rgba(62,142,207,0.5); }
+    input[type="range"].green-fader::-webkit-slider-thumb { background: var(--active); box-shadow: 0 0 4px rgba(62,207,96,0.5); }
+    input[type="range"].red-fader::-webkit-slider-thumb { background: var(--danger); box-shadow: 0 0 4px rgba(207,62,62,0.5); }
+
+    /* ── Button grids ──────────────────────────────────────────────── */
+    .btn-grid {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .btn-grid-3 { grid-template-columns: repeat(3, 1fr); }
+    .btn-grid-2 { grid-template-columns: repeat(2, 1fr); }
+    .btn-grid-4 { grid-template-columns: repeat(4, 1fr); }
+
+    .osc-btn {
+      padding: 9px 4px;
+      border: 1px solid var(--ctrl-border);
+      border-radius: var(--radius);
+      background: var(--ctrl-bg);
+      color: var(--text-dim);
+      font-family: inherit;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.1s, color 0.1s, border-color 0.1s;
+      text-align: center;
+    }
+
+    .osc-btn:hover { border-color: #555; color: var(--text); }
+
+    .osc-btn.active {
+      background: var(--active);
+      border-color: var(--active);
+      color: #111;
+    }
+
+    .osc-btn.active-orange {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #111;
+    }
+
+    .osc-btn.active-red {
+      background: var(--danger);
+      border-color: var(--danger);
+      color: #fff;
+    }
+
+    .osc-btn.active-blue {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: #fff;
+    }
+
+    /* ── Big tap button ────────────────────────────────────────────── */
+    #tap-btn {
+      width: 100%;
+      padding: 22px;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      border-radius: var(--radius);
+      border: 2px solid var(--accent);
+      background: var(--ctrl-bg);
+      color: var(--accent);
+      cursor: pointer;
+      transition: background 0.08s, color 0.08s;
+      margin-bottom: 10px;
+    }
+
+    #tap-btn:active {
+      background: var(--accent);
+      color: #111;
+    }
+
+    /* ── BPM display ───────────────────────────────────────────────── */
+    #bpm-display {
+      text-align: center;
+      margin-bottom: 12px;
+    }
+
+    #bpm-number {
+      font-size: 48px;
+      font-weight: 700;
+      color: var(--blue);
+      line-height: 1;
+    }
+
+    #bpm-label {
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    /* ── Cue slot buttons ──────────────────────────────────────────── */
+    #cue-slots {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+
+    /* ── Audio visualizer ──────────────────────────────────────────── */
+    #audio-bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 3px;
+      height: 60px;
+      background: #111;
+      border: 1px solid var(--ctrl-border);
+      border-radius: var(--radius);
+      padding: 4px;
+      margin-bottom: 10px;
+    }
+
+    .audio-bar-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 100%;
+      gap: 2px;
+    }
+
+    .audio-bar {
+      width: 100%;
+      border-radius: 2px 2px 0 0;
+      background: var(--accent);
+      transition: height 0.05s;
+      min-height: 2px;
+    }
+
+    .audio-bar.dim-active { background: var(--active); }
+
+    .audio-bar-label {
+      font-size: 8px;
+      color: var(--text-dim);
+      flex-shrink: 0;
+    }
+
+    /* ── Color swatches (small preview) ───────────────────────────── */
+    .color-preview {
+      width: 100%;
+      height: 24px;
+      border-radius: var(--radius);
+      border: 1px solid var(--ctrl-border);
+      margin-bottom: 10px;
+    }
+
+    /* ── Canvas panel (right) ──────────────────────────────────────── */
+    #canvas-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: #0a0a0a;
+      overflow: hidden;
+    }
+
+    #canvas-wrap {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #main-canvas {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* ── Status overlay (top-left of canvas) ──────────────────────── */
+    #status-overlay {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      pointer-events: none;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(0,0,0,0.7);
+      border: 1px solid #333;
+      border-radius: 20px;
+      padding: 3px 10px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--active);
+    }
+
+    .status-dot.off { background: var(--text-dim); }
+
+    /* ── Pan/Tilt mini-canvas ─────────────────────────────────────── */
+    #pt-canvas {
+      border: 1px solid #2a2a2a;
+      border-radius: 3px;
+      background: #080808;
+      display: block;
+    }
+
+    /* ── DMX strip (bottom of canvas panel) ───────────────────────── */
+    #dmx-strip {
+      height: 78px;
+      background: #111;
+      border-top: 1px solid var(--panel-border);
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 20px;
+      flex-shrink: 0;
+    }
+
+    .dmx-section {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .dmx-section-label {
+      font-size: 9px;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      writing-mode: horizontal-tb;
+      white-space: nowrap;
+    }
+
+    .light-indicator {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 2px solid #333;
+      background: #111;
+      transition: background 0.1s, box-shadow 0.1s;
+    }
+
+    .light-indicator.on {
+      box-shadow: 0 0 10px 3px currentColor;
+    }
+
+    .led-bar-indicator {
+      width: 22px;
+      height: 36px;
+      border-radius: 3px;
+      border: 1px solid #333;
+      background: #111;
+      transition: background 0.1s, box-shadow 0.1s;
+    }
+
+    .led-bar-indicator.on {
+      box-shadow: 0 0 8px 2px currentColor;
+    }
+
+    .dmx-divider {
+      width: 1px;
+      height: 40px;
+      background: var(--panel-border);
+    }
+
+    /* ── Responsive: stack on narrow screens ───────────────────────── */
+    @media (max-width: 700px) {
+      #main { flex-direction: column; }
+      #ctrl-panel { width: 100%; height: 55vh; border-right: none; border-top: 1px solid var(--panel-border); order: 2; }
+      #canvas-panel { order: 1; flex: none; height: 45vh; }
+    }
+
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Header ───────────────────────────────────────────────────── -->
+  <div id="header">
+    <h1>Live AV Performance System — Simulator</h1>
+    <div id="header-info">
+      <span>Pattern: <strong id="info-pattern">—</strong></span>
+      <span>BPM: <strong id="info-bpm">—</strong></span>
+      <span>FPS: <strong id="info-fps">—</strong></span>
+    </div>
+  </div>
+
+  <!-- ── Main ─────────────────────────────────────────────────────── -->
+  <div id="main">
+
+    <!-- ── Control panel ──────────────────────────────────────────── -->
+    <div id="ctrl-panel">
+
+      <div id="tabs">
+        <button class="tab-btn active" data-tab="pattern">Pattern</button>
+        <button class="tab-btn"        data-tab="color">Color</button>
+        <button class="tab-btn"        data-tab="audio">Audio</button>
+        <button class="tab-btn"        data-tab="lights">Lights</button>
+        <button class="tab-btn"        data-tab="bpm">BPM·Cue</button>
+      </div>
+
+      <div id="tab-content">
+
+        <!-- ── PATTERN tab ─────────────────────────────────────── -->
+        <div class="tab-pane active" id="tab-pattern">
+
+          <div class="section-title">Pattern Select</div>
+          <div class="btn-grid btn-grid-3" id="pattern-btns">
+            <button class="osc-btn" data-pattern="1">P1 Moire</button>
+            <button class="osc-btn" data-pattern="2">P2 River</button>
+            <button class="osc-btn" data-pattern="3">P3 Blobs</button>
+            <button class="osc-btn" data-pattern="4">P4 Zoom</button>
+            <button class="osc-btn" data-pattern="5">Camera</button>
+            <button class="osc-btn active-red" data-pattern="6">Off</button>
+          </div>
+
+          <div class="section-title">Speed &amp; Timing</div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Speed</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.25" id="speedOSC">
+            <span class="ctrl-value" id="val-speedOSC">0.25</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Easing</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.4" id="easingOSC">
+            <span class="ctrl-value" id="val-easingOSC">0.40</span>
+          </div>
+
+          <div class="section-title">Shape</div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Diam Max</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="diamOSC">
+            <span class="ctrl-value" id="val-diamOSC">0.50</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Transparency</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.4" id="transparencyOSC">
+            <span class="ctrl-value" id="val-transparencyOSC">0.40</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Density</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="densityOSC">
+            <span class="ctrl-value" id="val-densityOSC">0.50</span>
+          </div>
+
+          <div class="section-title">Noise (Moire)</div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Noise Scale</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.4" id="noiseScaleOSC">
+            <span class="ctrl-value" id="val-noiseScaleOSC">0.40</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">N1</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="n1offOSC">
+            <span class="ctrl-value" id="val-n1offOSC">0.50</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">N2</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="n2offOSC">
+            <span class="ctrl-value" id="val-n2offOSC">0.50</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">N3</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="n3offOSC">
+            <span class="ctrl-value" id="val-n3offOSC">0.50</span>
+          </div>
+
+          <div class="section-title">P3 Blob Controls</div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Blob Hue</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.72" id="metaHueOSC">
+            <span class="ctrl-value" id="val-metaHueOSC">0.72</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Ease Rate</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.30" id="metaEaseOSC">
+            <span class="ctrl-value" id="val-metaEaseOSC">0.30</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Trigger Lvl</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.40" id="metaThreshOSC">
+            <span class="ctrl-value" id="val-metaThreshOSC">0.40</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Blob Glow</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.60" id="metaGlowOSC">
+            <span class="ctrl-value" id="val-metaGlowOSC">0.60</span>
+          </div>
+
+          <div class="section-title">P4 Zoom Controls</div>
+          <div class="btn-grid btn-grid-2">
+            <button class="osc-btn active" id="btn-sq-rotate">Rotation ON</button>
+          </div>
+          <div class="ctrl-row" style="margin-top:6px;">
+            <span class="ctrl-label">Twist Amt</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.50" id="sqTwistOSC">
+            <span class="ctrl-value" id="val-sqTwistOSC">0.50</span>
+          </div>
+
+        </div><!-- /tab-pattern -->
+
+        <!-- ── COLOR tab ───────────────────────────────────────── -->
+        <div class="tab-pane" id="tab-color">
+
+          <div class="section-title">Visual Color</div>
+          <div id="visual-color-preview" class="color-preview"></div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Red</span>
+            <input type="range" class="red-fader" min="0" max="1" step="0.01" value="0.8" id="redOSC">
+            <span class="ctrl-value" id="val-redOSC">0.80</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Green</span>
+            <input type="range" class="green-fader" min="0" max="1" step="0.01" value="0.3" id="greenOSC">
+            <span class="ctrl-value" id="val-greenOSC">0.30</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Blue</span>
+            <input type="range" class="blue-fader" min="0" max="1" step="0.01" value="0.9" id="blueOSC">
+            <span class="ctrl-value" id="val-blueOSC">0.90</span>
+          </div>
+
+          <div class="section-title">LED Bar Color</div>
+          <div id="led-color-preview" class="color-preview"></div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Red LED</span>
+            <input type="range" class="red-fader" min="0" max="1" step="0.01" value="0.7" id="redLEDOSC">
+            <span class="ctrl-value" id="val-redLEDOSC">0.70</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Green LED</span>
+            <input type="range" class="green-fader" min="0" max="1" step="0.01" value="0.2" id="greenLEDOSC">
+            <span class="ctrl-value" id="val-greenLEDOSC">0.20</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Blue LED</span>
+            <input type="range" class="blue-fader" min="0" max="1" step="0.01" value="0.8" id="blueLEDOSC">
+            <span class="ctrl-value" id="val-blueLEDOSC">0.80</span>
+          </div>
+
+          <div class="section-title">DMX Color Wheel Range</div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Color Min</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="colorMinOSC">
+            <span class="ctrl-value" id="val-colorMinOSC">0.50</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Color Max</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.7" id="colorMaxOSC">
+            <span class="ctrl-value" id="val-colorMaxOSC">0.70</span>
+          </div>
+
+        </div><!-- /tab-color -->
+
+        <!-- ── AUDIO tab ────────────────────────────────────────── -->
+        <div class="tab-pane" id="tab-audio">
+
+          <div class="section-title">Audio Source</div>
+          <div class="btn-grid btn-grid-2" style="margin-bottom:6px;">
+            <button class="osc-btn" id="btn-mic">MIC Off</button>
+            <span id="mic-status" style="font-size:10px; color:var(--text-dim); align-self:center; padding-left:4px;">Simulated audio</span>
+          </div>
+          <div class="ctrl-row" style="margin-bottom:4px;">
+            <span class="ctrl-label" style="flex-shrink:0;">Device</span>
+            <select id="audio-device-select" style="flex:1; background:var(--ctrl-bg); color:var(--text); border:1px solid var(--ctrl-border); border-radius:var(--radius); padding:3px 6px; font-size:11px; font-family:inherit;">
+              <option value="">— default mic —</option>
+            </select>
+          </div>
+          <div class="ctrl-row" style="margin-bottom:8px;">
+            <span class="ctrl-label" style="flex-shrink:0;">Signal</span>
+            <div id="signal-bar-wrap" style="flex:1; height:10px; background:#111; border:1px solid var(--ctrl-border); border-radius:3px; overflow:hidden;">
+              <div id="signal-bar" style="height:100%; width:0%; background:var(--active); transition:width 0.05s;"></div>
+            </div>
+            <span id="signal-val" style="width:28px; text-align:right; color:var(--text-dim); font-size:10px;">0</span>
+          </div>
+
+          <div style="font-size:9px; color:var(--text-dim); line-height:1.5; padding:6px 8px; background:#0d0d0d; border:1px solid #2a2a2a; border-radius:var(--radius); margin-bottom:8px;">
+            <strong style="color:#555;">Capture music playback:</strong><br>
+            Focusrite Loopback uses ch 3-4 — browsers only read ch 1-2.<br>
+            Install <strong style="color:var(--accent)">BlackHole 2ch</strong> → set as system output (or Multi-Output Device with your interface) → select BlackHole here.
+          </div>
+
+          <div class="section-title" id="fft-title">FFT Bands (Simulated)</div>
+          <div id="audio-bars">
+            <div class="audio-bar-wrap">
+              <div class="audio-bar" id="bar-0" style="height:50%"></div>
+              <span class="audio-bar-label">0</span>
+            </div>
+            <div class="audio-bar-wrap">
+              <div class="audio-bar" id="bar-1" style="height:50%"></div>
+              <span class="audio-bar-label">1</span>
+            </div>
+            <div class="audio-bar-wrap">
+              <div class="audio-bar" id="bar-2" style="height:50%"></div>
+              <span class="audio-bar-label">2</span>
+            </div>
+            <div class="audio-bar-wrap">
+              <div class="audio-bar" id="bar-3" style="height:50%"></div>
+              <span class="audio-bar-label">3</span>
+            </div>
+            <div class="audio-bar-wrap">
+              <div class="audio-bar" id="bar-4" style="height:50%"></div>
+              <span class="audio-bar-label">4</span>
+            </div>
+            <div class="audio-bar-wrap">
+              <div class="audio-bar" id="bar-5" style="height:50%"></div>
+              <span class="audio-bar-label">5</span>
+            </div>
+            <div class="audio-bar-wrap">
+              <div class="audio-bar" id="bar-6" style="height:50%"></div>
+              <span class="audio-bar-label">6</span>
+            </div>
+          </div>
+
+          <div class="ctrl-row">
+            <span class="ctrl-label">Mic Sensitivity</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="micSenOSC">
+            <span class="ctrl-value" id="val-micSenOSC">0.50</span>
+          </div>
+
+          <div class="section-title">Shutter Trigger Band (dim)</div>
+          <div class="btn-grid btn-grid-4" id="dim-btns">
+            <button class="osc-btn active-orange" data-dim="0">Band 0</button>
+            <button class="osc-btn" data-dim="1">Band 1</button>
+            <button class="osc-btn" data-dim="2">Band 2</button>
+            <button class="osc-btn" data-dim="3">Band 3</button>
+          </div>
+
+        </div><!-- /tab-audio -->
+
+        <!-- ── LIGHTS tab ───────────────────────────────────────── -->
+        <div class="tab-pane" id="tab-lights">
+
+          <div class="section-title">Enable</div>
+          <div class="btn-grid btn-grid-2">
+            <button class="osc-btn" id="btn-minimac">MiniMac</button>
+            <button class="osc-btn" id="btn-ledbar">LED Bars</button>
+          </div>
+
+          <div class="section-title">Speed</div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">MiniMac Speed</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="minimacSpeedOSC">
+            <span class="ctrl-value" id="val-minimacSpeedOSC">0.50</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">LED Speed</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="ledSpeedOSC">
+            <span class="ctrl-value" id="val-ledSpeedOSC">0.50</span>
+          </div>
+
+          <div class="section-title">Pan / Tilt</div>
+          <div class="btn-grid btn-grid-2">
+            <button class="osc-btn" id="btn-panauto">Pan Auto</button>
+            <button class="osc-btn" id="btn-tilauto">Tilt Auto</button>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Pan</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="panOSC">
+            <span class="ctrl-value" id="val-panOSC">0.50</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Tilt</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" id="tilOSC">
+            <span class="ctrl-value" id="val-tilOSC">0.50</span>
+          </div>
+
+          <div class="section-title">Auto Range</div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Pan Min</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.3" id="autoPanMinOSC">
+            <span class="ctrl-value" id="val-autoPanMinOSC">0.30</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Pan Max</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.7" id="autoPanMaxOSC">
+            <span class="ctrl-value" id="val-autoPanMaxOSC">0.70</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Tilt Min</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.3" id="autoTilMinOSC">
+            <span class="ctrl-value" id="val-autoTilMinOSC">0.30</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Tilt Max</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.7" id="autoTilMaxOSC">
+            <span class="ctrl-value" id="val-autoTilMaxOSC">0.70</span>
+          </div>
+
+        </div><!-- /tab-lights -->
+
+        <!-- ── BPM · CUE tab ────────────────────────────────────── -->
+        <div class="tab-pane" id="tab-bpm">
+
+          <div class="section-title">Tap Tempo</div>
+          <button id="tap-btn">TAP</button>
+
+          <div id="bpm-display">
+            <div id="bpm-number">120</div>
+            <div id="bpm-label">BPM</div>
+          </div>
+
+          <div class="btn-grid btn-grid-2">
+            <button class="osc-btn" id="btn-bpmsync">BPM Sync</button>
+            <button class="osc-btn" id="btn-reset">Reset All</button>
+          </div>
+
+          <div class="section-title">Cue Slots</div>
+          <div id="cue-slots">
+            <button class="osc-btn active-orange" data-cue="1">1</button>
+            <button class="osc-btn" data-cue="2">2</button>
+            <button class="osc-btn" data-cue="3">3</button>
+            <button class="osc-btn" data-cue="4">4</button>
+            <button class="osc-btn" data-cue="5">5</button>
+            <button class="osc-btn" data-cue="6">6</button>
+            <button class="osc-btn" data-cue="7">7</button>
+            <button class="osc-btn" data-cue="8">8</button>
+          </div>
+          <div class="btn-grid btn-grid-2">
+            <button class="osc-btn" id="btn-savecue">Save Cue</button>
+            <button class="osc-btn" id="btn-loadcue">Load Cue</button>
+          </div>
+
+          <div class="section-title">Config</div>
+          <div class="btn-grid btn-grid-2">
+            <button class="osc-btn" id="btn-reloadconfig">Reload Config</button>
+            <button class="osc-btn" id="btn-debug">Debug: OFF</button>
+          </div>
+
+          <div class="section-title" style="margin-top:6px;">How to Use</div>
+          <div style="font-size:10px; color:var(--text-dim); line-height:1.65; padding:8px; background:#0d0d0d; border:1px solid #2a2a2a; border-radius:var(--radius);">
+
+            <strong style="color:var(--text-label);">TAP TEMPO</strong><br>
+            连续点击 TAP 4–8 次，系统会对最近 8 次间隔取平均值计算 BPM。<br>
+            点击越均匀，BPM 越准确。<br><br>
+
+            <strong style="color:var(--text-label);">BPM SYNC</strong><br>
+            开启后，MiniMac 移动速度和 LED 速度会锁定到当前 BPM。<br>
+            灯光动作与节拍同步，演出时节奏感更强。<br><br>
+
+            <strong style="color:var(--text-label);">CUE SLOTS（1–8）</strong><br>
+            每个 Slot 可以保存一套完整的场景参数（图案、颜色、灯光、速度等）。<br>
+            <span style="color:var(--accent);">工作流程：</span><br>
+            ① 在演出前调好每个场景 → 选对应 Slot → Save Cue<br>
+            ② 演出中：选 Slot → Load Cue，场景瞬间切换<br>
+            ③ 切换速度由 Easing 滑块控制<br><br>
+
+            <strong style="color:var(--text-label);">建议场景分配</strong><br>
+            1 → 开场低能量<br>
+            2–4 → 中等强度变化<br>
+            5–7 → 高能量 Drop<br>
+            8 → Blackout / 结束
+
+          </div>
+
+        </div><!-- /tab-bpm -->
+
+      </div><!-- /tab-content -->
+    </div><!-- /ctrl-panel -->
+
+    <!-- ── Canvas panel ────────────────────────────────────────────── -->
+    <div id="canvas-panel">
+      <div id="canvas-wrap">
+        <canvas id="main-canvas"></canvas>
+
+        <div id="status-overlay">
+          <div class="status-pill">
+            <span class="status-dot off" id="dot-pattern"></span>
+            <span id="status-pattern">No Pattern</span>
+          </div>
+          <div class="status-pill">
+            <span class="status-dot off" id="dot-minimac"></span>
+            <span>MiniMac</span>
+          </div>
+          <div class="status-pill">
+            <span class="status-dot off" id="dot-led"></span>
+            <span>LED Bars</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── DMX strip ─────────────────────────────────────────────── -->
+      <div id="dmx-strip">
+        <div class="dmx-section">
+          <span class="dmx-section-label">Moving Lights</span>
+          <div class="light-indicator" id="light-0"></div>
+          <div class="light-indicator" id="light-1"></div>
+          <div class="light-indicator" id="light-2"></div>
+          <div class="light-indicator" id="light-3"></div>
+        </div>
+        <div class="dmx-divider"></div>
+        <div class="dmx-section">
+          <span class="dmx-section-label">LED Bars</span>
+          <div class="led-bar-indicator" id="led-0"></div>
+          <div class="led-bar-indicator" id="led-1"></div>
+          <div class="led-bar-indicator" id="led-2"></div>
+          <div class="led-bar-indicator" id="led-3"></div>
+          <div class="led-bar-indicator" id="led-4"></div>
+          <div class="led-bar-indicator" id="led-5"></div>
+        </div>
+        <div class="dmx-divider"></div>
+        <div class="dmx-section" style="flex-direction:column; align-items:flex-start; gap:4px;">
+          <span class="dmx-section-label">
+            Pan <strong id="dmx-pan">128</strong> · Tilt <strong id="dmx-tilt">180</strong>
+          </span>
+          <canvas id="pt-canvas" width="96" height="42"></canvas>
+        </div>
+      </div>
+    </div><!-- /canvas-panel -->
+
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<script>
+'use strict';
+
+// ════════════════════════════════════════════════════════════════════
+// HELPERS
+// ════════════════════════════════════════════════════════════════════
+const map   = (v, a, b, c, d) => c + (v - a) / (b - a) * (d - c);
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp  = (a, b, t) => a + (b - a) * t;
+const $ = id => document.getElementById(id);
+
+// HSL → RGB (h/s/l all 0–1). Used by P3 metaball palette.
+function hsl2rgb(h, s, l) {
+  h = ((h % 1) + 1) % 1;  // wrap to [0,1)
+  const a = s * Math.min(l, 1 - l);
+  const f = n => {
+    const k = (n + h * 12) % 12;
+    return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+  };
+  return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+}
+
+// ════════════════════════════════════════════════════════════════════
+// STATE  (mirrors all OSC parameters)
+// ════════════════════════════════════════════════════════════════════
+const state = {
+  // Pattern
+  activePattern: 0,           // 0=idle 1-4=patterns 5=cam 6=off
+  speedOSC:       0.25,
+  easingOSC:      0.4,
+  diamOSC:        0.5,
+  transparencyOSC:0.4,
+  densityOSC:     0.5,
+  noiseScaleOSC:  0.4,
+  n1offOSC:       0.5,
+  n2offOSC:       0.5,
+  n3offOSC:       0.5,
+  // P3 Blob controls
+  metaHueOSC:     0.72,   // 0-1 → full hue rotation (0.72 ≈ 260° violet/purple)
+  metaEaseOSC:    0.30,   // 0-1 → drift speed slow↔fast
+  metaThreshOSC:  0.40,   // 0-1 → trigger energy threshold sensitive↔reluctant
+  metaGlowOSC:    0.60,   // 0-1 → glow pass brightness
+  // P4 Zoom controls
+  sqRotateOn:     1,      // 1=rotation enabled, 0=squares stay axis-aligned
+  sqTwistOSC:     0.50,   // 0-1 → twist amount per level
+  // Colors
+  redOSC:         0.8,
+  greenOSC:       0.3,
+  blueOSC:        0.9,
+  redLEDOSC:      0.7,
+  greenLEDOSC:    0.2,
+  blueLEDOSC:     0.8,
+  colorMinOSC:    0.5,
+  colorMaxOSC:    0.7,
+  // Audio
+  micSenOSC:      0.5,
+  dim:            0,          // active FFT band index 0-3
+  // Lights
+  MiniMac:        0,
+  ledButton:      0,
+  minimacSpeedOSC:0.5,
+  ledSpeedOSC:    0.5,
+  panOSC:         0.5,
+  tilOSC:         0.5,
+  panAutoButton:  0,
+  tilAutoButton:  0,
+  autoPanMinOSC:  0.3,
+  autoPanMaxOSC:  0.7,
+  autoTilMinOSC:  0.3,
+  autoTilMaxOSC:  0.7,
+  // BPM
+  bpm:            120,
+  bpmSyncEnabled: false,
+  // Cue
+  cueSlot:        1,
+  // Misc
+  debug:          false,
+};
+
+// ════════════════════════════════════════════════════════════════════
+// DERIVED  (recomputed every frame from state)
+// ════════════════════════════════════════════════════════════════════
+const derived = {
+  micSen:       1.0,
+  noiseScale:   40,
+  n1offMax:     0.005,
+  n2offMax:     0.005,
+  n3offMax:     0.005,
+  speed:        0.005,
+  easing:       0.05,
+  diam:         300,
+  transparency: 100,
+  density:      12,
+  minimacSpeed: 15,
+  ledSpeed:     15,
+  colorMin:     84,
+  colorMax:     131,
+};
+
+function updateDerived() {
+  const s = state;
+  const W = $('main-canvas').width || 800;
+  derived.micSen       = map(s.micSenOSC, 0, 1, 0.25, 2.5);  // audio gain: 0.25× (quiet) → 2.5× (sensitive)
+  derived.noiseScale   = map(s.noiseScaleOSC,   0,1, 20, 100);
+  derived.n1offMax     = map(s.n1offOSC,        0,1, 0.0001, 0.01);
+  derived.n2offMax     = map(s.n2offOSC,        0,1, 0.0001, 0.01);
+  derived.n3offMax     = map(s.n3offOSC,        0,1, 0.0001, 0.01);
+  derived.speed        = map(s.speedOSC,        0,1, 0.0005, 0.02);
+  derived.easing       = map(s.easingOSC,       0,1, 0.001, 0.1);
+  derived.diam         = map(s.diamOSC,         0,1, 11, W * 0.6);
+  derived.transparency = map(s.transparencyOSC, 0,1, 0, 255);
+  derived.density      = map(s.densityOSC,      0,1, 6, 20);
+  derived.minimacSpeed = Math.max(1, Math.floor(map(s.minimacSpeedOSC, 0,1, 31, 2)));
+  derived.ledSpeed     = Math.max(1, Math.floor(map(s.ledSpeedOSC,     0,1, 31, 2)));
+  derived.colorMin     = Math.floor(map(s.colorMinOSC, 0,1, 24, 150));
+  derived.colorMax     = Math.floor(map(s.colorMaxOSC, 0,1, 24, 150));
+}
+
+// ════════════════════════════════════════════════════════════════════
+// WEB AUDIO API — MIC / LINE INPUT
+// ════════════════════════════════════════════════════════════════════
+let audioCtx   = null;
+let analyser   = null;
+let micStream  = null;
+let fftBuffer  = null;
+let micActive  = false;
+
+// Frequency ranges for each of the 7 bands (Hz), matching Minim's log spacing
+const BAND_RANGES = [
+  [20,   80],    // 0  sub-bass   → shutter / size (dim)
+  [80,   250],   // 1  bass       → red LED
+  [250,  600],   // 2  low-mid    → blue LED
+  [600,  1500],  // 3  mid        → green LED
+  [1500, 4000],  // 4  upper-mid
+  [4000, 10000], // 5  presence
+  [10000,20000], // 6  brilliance
+];
+
+async function startMic() {
+  try {
+    const deviceId = $('audio-device-select').value;
+    const audioConstraints = {
+      echoCancellation:  false,
+      autoGainControl:   false,
+      noiseSuppression:  false,
+      channelCount:      { ideal: 2 },
+    };
+    if (deviceId) audioConstraints.deviceId = { exact: deviceId };
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
+    audioCtx  = new AudioContext();
+    await audioCtx.resume();                 // Chrome/Safari may start suspended
+    const src = audioCtx.createMediaStreamSource(micStream);
+    analyser  = audioCtx.createAnalyser();
+    analyser.fftSize               = 2048;
+    analyser.smoothingTimeConstant = 0.6;
+    analyser.minDecibels           = -90;
+    analyser.maxDecibels           = -10;
+    src.connect(analyser);
+
+    // Safari REQUIRES the graph to reach audioCtx.destination to process audio.
+    // Use a silent GainNode (gain=0) to avoid mic feedback through speakers.
+    const silentGain = audioCtx.createGain();
+    silentGain.gain.value = 0;
+    analyser.connect(silentGain);
+    silentGain.connect(audioCtx.destination);
+
+    fftBuffer = new Uint8Array(analyser.frequencyBinCount);
+
+    // Diagnostic: log audio track info to console
+    const track = micStream.getAudioTracks()[0];
+    console.log('[Mic] AudioContext state:', audioCtx.state);
+    console.log('[Mic] Track label:', track?.label);
+    console.log('[Mic] Track enabled:', track?.enabled, '| muted:', track?.muted);
+    console.log('[Mic] Track settings:', track?.getSettings?.());
+    console.log('[Mic] FFT bins:', analyser.frequencyBinCount, '| binHz:', (audioCtx.sampleRate / analyser.fftSize).toFixed(1));
+    micActive = true;
+    $('btn-mic').textContent = 'MIC On';
+    $('btn-mic').classList.add('active');
+    const devLabel = $('audio-device-select').selectedOptions[0]?.textContent || 'microphone';
+    $('mic-status').textContent = devLabel + ' [ctx:' + audioCtx.state + ']';
+    $('mic-status').style.color = 'var(--active)';
+    $('fft-title').textContent  = 'FFT Bands (Live)';
+  } catch (err) {
+    $('mic-status').textContent = 'Access denied';
+    $('mic-status').style.color = 'var(--danger)';
+    console.warn('Mic error:', err);
+  }
+}
+
+function stopMic() {
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  if (audioCtx)  { audioCtx.close(); audioCtx = null; }
+  analyser  = null;
+  fftBuffer = null;
+  micActive = false;
+  $('btn-mic').textContent = 'MIC Off';
+  $('btn-mic').classList.remove('active');
+  $('mic-status').textContent = 'Simulated audio';
+  $('mic-status').style.color = 'var(--text-dim)';
+  $('fft-title').textContent  = 'FFT Bands (Simulated)';
+}
+
+// Populate device list (requires a brief permission grant first time)
+async function refreshDeviceList() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const sel = $('audio-device-select');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">— default mic —</option>';
+    devices
+      .filter(d => d.kind === 'audioinput')
+      .forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `Input ${d.deviceId.slice(0,8)}`;
+        sel.appendChild(opt);
+      });
+    if (prev) sel.value = prev;   // restore selection if still present
+  } catch (e) { /* permissions not yet granted — list stays minimal */ }
+}
+
+// Refresh list on change (covers hot-plug)
+navigator.mediaDevices.addEventListener('devicechange', refreshDeviceList);
+refreshDeviceList();
+
+$('btn-mic').addEventListener('click', () => {
+  if (micActive) {
+    stopMic();
+  } else {
+    startMic().then(refreshDeviceList);  // populate labels after first grant
+  }
+});
+
+// Float buffer — avoids minDecibels/maxDecibels byte-mapping entirely
+let floatFFTBuffer = null;
+let tdDebugTimer   = 0;
+
+function updateAudioFromMic() {
+  if (!floatFFTBuffer) floatFFTBuffer = new Float32Array(analyser.frequencyBinCount);
+  analyser.getFloatFrequencyData(floatFFTBuffer);  // values in dBFS (-Infinity … 0)
+
+  const binHz = audioCtx.sampleRate / analyser.fftSize;
+  let peakDb  = -Infinity;
+
+  for (let i = 0; i < 7; i++) {
+    const [fLo, fHi] = BAND_RANGES[i];
+    const bLo = Math.max(0, Math.floor(fLo / binHz));
+    const bHi = Math.min(floatFFTBuffer.length - 1, Math.ceil(fHi / binHz));
+    let bandMax = -Infinity;
+    for (let b = bLo; b <= bHi; b++) {
+      if (floatFFTBuffer[b] > bandMax) bandMax = floatFFTBuffer[b];
+      if (floatFFTBuffer[b] > peakDb)  peakDb  = floatFFTBuffer[b];
+    }
+    // Map -80 dBFS → 0,  -10 dBFS → 100  (generous range for music)
+    audioData[i] = bandMax === -Infinity ? 0 : clamp(map(bandMax, -80, -10, 0, 100), 0, 100);
+  }
+
+  // Signal bar: show peak dBFS
+  const finite = isFinite(peakDb);
+  const sigPct = finite ? clamp(map(peakDb, -80, -10, 0, 100), 0, 100) : 0;
+  $('signal-bar').style.width      = sigPct + '%';
+  $('signal-val').textContent      = finite ? peakDb.toFixed(0) + 'dB' : '-∞';
+  $('signal-bar').style.background = sigPct < 3 ? 'var(--danger)' : 'var(--active)';
+
+  // Time-domain debug: logs every 2 s so we can see if waveform has ANY energy
+  tdDebugTimer++;
+  if (tdDebugTimer % 120 === 1) {
+    const td = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(td);
+    let maxDev = 0;
+    for (let v of td) { const d = Math.abs(v - 128); if (d > maxDev) maxDev = d; }
+    console.log('[Mic] time-domain maxDev:', maxDev, '(0=silence)  peakFFT:', finite ? peakDb.toFixed(1)+'dB' : '-∞');
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SIMULATED FFT AUDIO  (7 bands, 0-100)
+// ════════════════════════════════════════════════════════════════════
+const audioData = new Array(7).fill(0);
+
+function updateAudio(t) {
+  if (micActive) { updateAudioFromMic(); return; }
+
+  for (let i = 0; i < 7; i++) {
+    const freq   = 0.4 + i * 0.35;
+    const phase  = i * 1.3;
+    const base   = 35 + 45 * Math.abs(Math.sin(t * freq + phase));
+    const jitter = (Math.random() - 0.5) * 25;
+    // band 0 gets a strong kick-drum pulse every ~0.5s
+    const kick   = (i === 0) ? 30 * Math.max(0, Math.sin(t * 2.1)) : 0;
+    audioData[i] = clamp(base + jitter + kick, 0, 100);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// TAB SWITCHING
+// ════════════════════════════════════════════════════════════════════
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    $('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// FADER WIRING  — all range inputs auto-bind to state + value label
+// ════════════════════════════════════════════════════════════════════
+const faderIds = [
+  'speedOSC','easingOSC','diamOSC','transparencyOSC','densityOSC',
+  'noiseScaleOSC','n1offOSC','n2offOSC','n3offOSC',
+  'metaHueOSC','metaEaseOSC','metaThreshOSC','metaGlowOSC',
+  'sqTwistOSC',
+  'redOSC','greenOSC','blueOSC',
+  'redLEDOSC','greenLEDOSC','blueLEDOSC',
+  'colorMinOSC','colorMaxOSC',
+  'micSenOSC',
+  'minimacSpeedOSC','ledSpeedOSC',
+  'panOSC','tilOSC',
+  'autoPanMinOSC','autoPanMaxOSC','autoTilMinOSC','autoTilMaxOSC',
+];
+
+faderIds.forEach(id => {
+  const el = $(id);
+  if (!el) return;
+  el.value = state[id] ?? 0.5;
+  el.addEventListener('input', () => {
+    state[id] = parseFloat(el.value);
+    const lbl = $('val-' + id);
+    if (lbl) lbl.textContent = parseFloat(el.value).toFixed(2);
+    onStateChange(id);
+  });
+  // init label
+  const lbl = $('val-' + id);
+  if (lbl) lbl.textContent = parseFloat(el.value).toFixed(2);
+});
+
+// ════════════════════════════════════════════════════════════════════
+// PATTERN BUTTONS  (exclusive)
+// ════════════════════════════════════════════════════════════════════
+const PATTERN_NAMES = {
+  0:'No Pattern', 1:'P1 Moire', 2:'P2 Rings',
+  3:'P3 Light',   4:'P4 Jazz',  5:'Camera', 6:'Blackout'
+};
+
+document.querySelectorAll('[data-pattern]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const p = parseInt(btn.dataset.pattern);
+    state.activePattern = (state.activePattern === p && p !== 6) ? 0 : p;
+    refreshPatternButtons();
+    updateStatusOverlay();
+  });
+});
+
+function refreshPatternButtons() {
+  document.querySelectorAll('[data-pattern]').forEach(btn => {
+    const p = parseInt(btn.dataset.pattern);
+    btn.classList.remove('active-orange','active-red','active');
+    if (p === state.activePattern) {
+      btn.classList.add(p === 6 ? 'active-red' : 'active-orange');
+    } else if (p === 6) {
+      // blackout always has subtle red tint when inactive
+    }
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════
+// DIM (FFT band) BUTTONS  (exclusive)
+// ════════════════════════════════════════════════════════════════════
+document.querySelectorAll('[data-dim]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    state.dim = parseInt(btn.dataset.dim);
+    refreshDimButtons();
+    refreshAudioBarHighlight();
+  });
+});
+
+function refreshDimButtons() {
+  document.querySelectorAll('[data-dim]').forEach(btn => {
+    btn.classList.toggle('active-orange', parseInt(btn.dataset.dim) === state.dim);
+  });
+}
+
+function refreshAudioBarHighlight() {
+  for (let i = 0; i < 7; i++) {
+    const bar = $('bar-' + i);
+    if (bar) bar.classList.toggle('dim-active', i === state.dim);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// TOGGLE BUTTONS
+// ════════════════════════════════════════════════════════════════════
+function wireToggle(btnId, stateKey, onClass = 'active') {
+  const btn = $(btnId);
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    state[stateKey] = state[stateKey] ? 0 : 1;
+    btn.classList.toggle(onClass, !!state[stateKey]);
+    onStateChange(stateKey);
+  });
+}
+
+wireToggle('btn-minimac', 'MiniMac');
+wireToggle('btn-ledbar',  'ledButton');
+wireToggle('btn-panauto', 'panAutoButton');
+wireToggle('btn-tilauto', 'tilAutoButton');
+
+// P4 Rotation toggle
+const sqRotBtn = $('btn-sq-rotate');
+if (sqRotBtn) {
+  sqRotBtn.addEventListener('click', () => {
+    state.sqRotateOn = state.sqRotateOn ? 0 : 1;
+    sqRotBtn.textContent = state.sqRotateOn ? 'Rotation ON' : 'Rotation OFF';
+    sqRotBtn.classList.toggle('active', !!state.sqRotateOn);
+  });
+}
+
+$('btn-bpmsync').addEventListener('click', () => {
+  state.bpmSyncEnabled = !state.bpmSyncEnabled;
+  $('btn-bpmsync').classList.toggle('active-blue', state.bpmSyncEnabled);
+  $('btn-bpmsync').textContent = state.bpmSyncEnabled ? 'BPM Sync ON' : 'BPM Sync';
+});
+
+$('btn-debug').addEventListener('click', () => {
+  state.debug = !state.debug;
+  $('btn-debug').textContent = state.debug ? 'Debug: ON' : 'Debug: OFF';
+  $('btn-debug').classList.toggle('active', state.debug);
+});
+
+$('btn-reset').addEventListener('click', () => {
+  if (!confirm('Reset all controls to defaults?')) return;
+  // Reset faders
+  faderIds.forEach(id => {
+    const defaults = { speedOSC:0.25, easingOSC:0.4, redOSC:0.8, greenOSC:0.3, blueOSC:0.9,
+                       redLEDOSC:0.7, greenLEDOSC:0.2, blueLEDOSC:0.8, micSenOSC:0.5,
+                       metaHueOSC:0.72, metaEaseOSC:0.30, metaThreshOSC:0.40, metaGlowOSC:0.60,
+                       sqTwistOSC:0.50 };
+    state[id] = defaults[id] ?? 0.5;
+    const el = $(id);
+    if (el) { el.value = state[id]; }
+    const lbl = $('val-' + id);
+    if (lbl) lbl.textContent = state[id].toFixed(2);
+  });
+  state.activePattern = 0;
+  state.dim = 0;
+  state.MiniMac = 0; state.ledButton = 0;
+  state.bpmSyncEnabled = false;
+  refreshPatternButtons();
+  refreshDimButtons();
+  refreshAudioBarHighlight();
+  updateStatusOverlay();
+  updateColorPreviews();
+  $('btn-minimac').classList.remove('active');
+  $('btn-ledbar').classList.remove('active');
+  $('btn-bpmsync').classList.remove('active-blue');
+  $('btn-bpmsync').textContent = 'BPM Sync';
+});
+
+// ════════════════════════════════════════════════════════════════════
+// CUE SLOT BUTTONS
+// ════════════════════════════════════════════════════════════════════
+document.querySelectorAll('[data-cue]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    state.cueSlot = parseInt(btn.dataset.cue);
+    document.querySelectorAll('[data-cue]').forEach(b => b.classList.remove('active-orange'));
+    btn.classList.add('active-orange');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// CUE SAVE / LOAD  (localStorage)
+// ════════════════════════════════════════════════════════════════════
+$('btn-savecue').addEventListener('click', () => {
+  const key = 'cue_' + state.cueSlot;
+  const snapshot = {};
+  faderIds.forEach(id => { snapshot[id] = state[id]; });
+  snapshot.activePattern   = state.activePattern;
+  snapshot.dim             = state.dim;
+  snapshot.MiniMac         = state.MiniMac;
+  snapshot.ledButton       = state.ledButton;
+  snapshot.bpm             = state.bpm;
+  snapshot.bpmSyncEnabled  = state.bpmSyncEnabled;
+  localStorage.setItem(key, JSON.stringify(snapshot));
+  flashBtn($('btn-savecue'), 'Saved!', 'active');
+});
+
+$('btn-loadcue').addEventListener('click', () => {
+  const key = 'cue_' + state.cueSlot;
+  const raw = localStorage.getItem(key);
+  if (!raw) { flashBtn($('btn-loadcue'), 'Empty', 'active-red'); return; }
+  const snap = JSON.parse(raw);
+  Object.assign(state, snap);
+  // sync all fader UIs
+  faderIds.forEach(id => {
+    const el = $(id); if (!el) return;
+    el.value = state[id] ?? 0.5;
+    const lbl = $('val-' + id);
+    if (lbl) lbl.textContent = parseFloat(el.value).toFixed(2);
+  });
+  refreshPatternButtons();
+  refreshDimButtons();
+  refreshAudioBarHighlight();
+  updateStatusOverlay();
+  updateColorPreviews();
+  $('btn-minimac').classList.toggle('active', !!state.MiniMac);
+  $('btn-ledbar').classList.toggle('active',  !!state.ledButton);
+  $('bpm-number').textContent = Math.round(state.bpm);
+  flashBtn($('btn-loadcue'), 'Loaded!', 'active');
+});
+
+$('btn-reloadconfig').addEventListener('click', () => {
+  flashBtn($('btn-reloadconfig'), 'Config OK', 'active');
+});
+
+function flashBtn(btn, label, cls) {
+  const orig = btn.textContent;
+  btn.textContent = label;
+  btn.classList.add(cls);
+  setTimeout(() => { btn.textContent = orig; btn.classList.remove(cls); }, 1000);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// TAP TEMPO
+// ════════════════════════════════════════════════════════════════════
+const tapHistory = [];
+const TAP_MAX = 8;
+
+$('tap-btn').addEventListener('click', () => {
+  const now = performance.now();
+  tapHistory.push(now);
+  if (tapHistory.length > TAP_MAX) tapHistory.shift();
+  if (tapHistory.length >= 2) {
+    const intervals = [];
+    for (let i = 1; i < tapHistory.length; i++)
+      intervals.push(tapHistory[i] - tapHistory[i-1]);
+    const avg = intervals.reduce((a,b) => a+b, 0) / intervals.length;
+    if (avg > 150) {   // ignore if < 400 BPM
+      state.bpm = clamp(60000 / avg, 40, 240);
+      $('bpm-number').textContent = Math.round(state.bpm);
+      $('info-bpm').textContent   = Math.round(state.bpm);
+    }
+  }
+  // visual flash
+  $('tap-btn').style.background = 'var(--accent)';
+  $('tap-btn').style.color = '#111';
+  setTimeout(() => {
+    $('tap-btn').style.background = '';
+    $('tap-btn').style.color = '';
+  }, 80);
+});
+
+// ════════════════════════════════════════════════════════════════════
+// STATE CHANGE REACTIONS
+// ════════════════════════════════════════════════════════════════════
+function onStateChange(key) {
+  if (['redOSC','greenOSC','blueOSC','redLEDOSC','greenLEDOSC','blueLEDOSC'].includes(key)) {
+    updateColorPreviews();
+  }
+}
+
+function updateColorPreviews() {
+  const r = Math.round(state.redOSC   * 255);
+  const g = Math.round(state.greenOSC * 255);
+  const b = Math.round(state.blueOSC  * 255);
+  $('visual-color-preview').style.background = `rgb(${r},${g},${b})`;
+
+  const lr = Math.round(state.redLEDOSC   * 255);
+  const lg = Math.round(state.greenLEDOSC * 255);
+  const lb = Math.round(state.blueLEDOSC  * 255);
+  $('led-color-preview').style.background = `rgb(${lr},${lg},${lb})`;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// STATUS OVERLAY
+// ════════════════════════════════════════════════════════════════════
+function updateStatusOverlay() {
+  const name = PATTERN_NAMES[state.activePattern] || 'No Pattern';
+  $('status-pattern').textContent = name;
+  $('info-pattern').textContent   = name;
+  $('dot-pattern').classList.toggle('off', state.activePattern === 0 || state.activePattern === 6);
+  $('dot-minimac').classList.toggle('off', !state.MiniMac);
+  $('dot-led').classList.toggle('off',     !state.ledButton);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// AUDIO BAR UI UPDATE
+// ════════════════════════════════════════════════════════════════════
+function updateAudioBars() {
+  for (let i = 0; i < 7; i++) {
+    const bar = $('bar-' + i);
+    if (bar) bar.style.height = (audioData[i] / 100 * 100) + '%';
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// FPS COUNTER
+// ════════════════════════════════════════════════════════════════════
+let fpsCount = 0, fpsLast = performance.now(), fpsDisplay = 0;
+function tickFPS() {
+  fpsCount++;
+  const now = performance.now();
+  if (now - fpsLast >= 1000) {
+    fpsDisplay = fpsCount;
+    fpsCount = 0;
+    fpsLast = now;
+    $('info-fps').textContent = fpsDisplay;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// CANVAS SETUP
+// ════════════════════════════════════════════════════════════════════
+const canvas = $('main-canvas');
+const ctx    = canvas.getContext('2d');
+
+function resizeCanvas() {
+  const wrap = $('canvas-wrap');
+  canvas.width  = wrap.clientWidth  || 800;
+  canvas.height = wrap.clientHeight || 600;
+}
+new ResizeObserver(resizeCanvas).observe($('canvas-wrap'));
+resizeCanvas();
+
+// ════════════════════════════════════════════════════════════════════
+// PATTERN ANIMATION STATE
+// ════════════════════════════════════════════════════════════════════
+let n1off   = 0, n2off   = 0, n3off   = 0;   // noise offsets (moire)
+let patAngle = 0;                              // global rotation accumulator
+let colorR   = 0, colorG = 0, colorB  = 0;    // eased audio colors
+
+// Step 4 additions
+let autoPanAngle  = 0, autoTilAngle = 0;       // sinusoidal auto-sweep phases
+let minimacHue    = 0;                          // colour-wheel hue accumulator (0–1)
+let beatFlash     = 0;                          // 0–1, decays per frame
+let lastBeatTime  = -Infinity;                  // wall-clock seconds of last BPM beat
+
+// ── Audio smoothing (attack fast / release slow) ─────────────────────
+// Prevents sudden peaks from causing jarring visual jumps.
+// Rise: responds quickly to beats. Fall: decays slowly for comfort.
+const smoothedAudio = new Array(7).fill(30);
+const SMOOTH_ATTACK  = 0.28;   // ~3 frames to reach a new peak
+const SMOOTH_RELEASE = 0.06;   // ~16 frames to decay — slow, smooth tail
+
+function updateSmoothedAudio() {
+  for (let i = 0; i < 7; i++) {
+    // Apply mic sensitivity gain before smoothing
+    const gained = clamp(audioData[i] * derived.micSen, 0, 100);
+    const rate   = gained > smoothedAudio[i] ? SMOOTH_ATTACK : SMOOTH_RELEASE;
+    smoothedAudio[i] += (gained - smoothedAudio[i]) * rate;
+  }
+}
+
+// ── Smoothed radii — persist so size can't jump faster than RADIUS_EASE ─
+let smoothOuterR = 100, smoothInnerR = 50;
+
+// ── Smoothed LED colours — rate controlled by ledSpeedOSC ────────────
+let ledRs = 0, ledGs = 0, ledBs = 0;
+
+// ── Transient detector — spikes when a sudden loud event appears ──────
+// Used by P4 Jazz to jitter spiral centres on voice stabs / drum hits
+let transientLevel = 0;
+let prevPeak       = 0;
+
+function updateTransient() {
+  const peak  = Math.max(...audioData) / 100;
+  // "Surprise" = how much louder we suddenly got vs the recent envelope
+  const delta = Math.max(0, peak - prevPeak);
+  transientLevel  = Math.max(transientLevel  * 0.82, delta * 3.0);
+  prevPeak        = prevPeak * 0.90 + peak  * 0.10;   // slow follower
+}
+
+// ── P4 Jazz Ensemble — spring physics & particle system state ─────────
+// Spring array: 4 independent mass-spring-dampers driven by audio envelopes
+// Each spring drives a different geometric deformation.
+const JAZZ_SPRINGS = 4;
+const jazzSpringPos = new Float32Array(JAZZ_SPRINGS).fill(0.35); // current extension 0-1
+const jazzSpringVel = new Float32Array(JAZZ_SPRINGS).fill(0);    // velocity
+
+// Particle pool — pre-allocated to avoid GC spikes
+const JAZZ_MAX_P = 280;
+const jazzPx    = new Float32Array(JAZZ_MAX_P);  // x position (absolute)
+const jazzPy    = new Float32Array(JAZZ_MAX_P);  // y position
+const jazzPvx   = new Float32Array(JAZZ_MAX_P);  // velocity x
+const jazzPvy   = new Float32Array(JAZZ_MAX_P);  // velocity y
+const jazzPlife = new Float32Array(JAZZ_MAX_P);  // remaining life 0→1 (1=fresh)
+const jazzPtype = new Uint8Array(JAZZ_MAX_P);    // 0=warm-ember, 1=lipstick-burst
+let jazzPcount  = 0;
+let jazzPrevTransient = 0;   // used to detect rising edge for explosion trigger
+
+// Hard-cut visual state machine
+let jazzState      = 0;      // 0=bass-rings, 1=piano-spokes, 2=orbital, 3=grid-chaos
+let jazzBeatCount  = 0;      // counts BPM beats for state switching
+let jazzPrevBeatFlash = 0;   // edge detect on beatFlash
+
+// Spawn N particles at (ox,oy) with given type and speed scale
+function jazzSpawnParticles(ox, oy, n, type, speed) {
+  for (let i = 0; i < n; i++) {
+    const slot = jazzPcount % JAZZ_MAX_P;
+    const ang  = Math.random() * Math.PI * 2;
+    const spd  = speed * (0.4 + Math.random() * 0.6);
+    jazzPx[slot]    = ox;
+    jazzPy[slot]    = oy;
+    jazzPvx[slot]   = Math.cos(ang) * spd;
+    jazzPvy[slot]   = Math.sin(ang) * spd;
+    jazzPlife[slot] = 0.9 + Math.random() * 0.1;
+    jazzPtype[slot] = type;
+    jazzPcount++;
+  }
+}
+
+// ── P2 River — particle pool ──────────────────────────────────────────
+const RIVER_MAX_P  = 350;
+const riverPx    = new Float32Array(RIVER_MAX_P);
+const riverPy    = new Float32Array(RIVER_MAX_P);
+const riverPvx   = new Float32Array(RIVER_MAX_P);
+const riverPvy   = new Float32Array(RIVER_MAX_P);
+const riverPsz   = new Float32Array(RIVER_MAX_P);  // dot radius
+const riverPbri  = new Float32Array(RIVER_MAX_P);  // brightness 0→1
+const riverPtype = new Uint8Array(RIVER_MAX_P);    // 0=main, 1=sparkle
+let riverReady   = false;
+
+function initRiver(W, H) {
+  for (let i = 0; i < RIVER_MAX_P; i++) {
+    riverPx[i]    = Math.random() * W;
+    riverPy[i]    = Math.random() * H;
+    riverPvx[i]   = 0.6 + Math.random() * 2.0;
+    riverPvy[i]   = (Math.random() - 0.5) * 0.8;
+    riverPsz[i]   = 0.8 + Math.random() * 2.2;
+    riverPbri[i]  = 0.2 + Math.random() * 0.8;
+    riverPtype[i] = Math.random() < 0.08 ? 1 : 0;
+  }
+  riverReady = true;
+}
+
+// ── P3 Metaballs — blob state ─────────────────────────────────────────
+const META_N   = 8;
+const metaBx   = new Float32Array(META_N);
+const metaBy   = new Float32Array(META_N);
+const metaBvx  = new Float32Array(META_N);   // kept for BPM kick residual
+const metaBvy  = new Float32Array(META_N);
+const metaBr   = new Float32Array(META_N);   // field radius
+// Target positions — blobs drift toward these slowly
+const metaTargetX  = new Float32Array(META_N);
+const metaTargetY  = new Float32Array(META_N);
+const metaMoveCool = new Float32Array(META_N); // per-blob countdown before next target pick
+let metaReady  = false;
+let metaOffscreen = null, metaOffCtx = null;
+
+function initMeta(W, H) {
+  for (let i = 0; i < META_N; i++) {
+    metaBx[i]       = W * (0.15 + Math.random() * 0.7);
+    metaBy[i]       = H * (0.15 + Math.random() * 0.7);
+    metaTargetX[i]  = metaBx[i];
+    metaTargetY[i]  = metaBy[i];
+    metaBvx[i]      = 0;
+    metaBvy[i]      = 0;
+    metaBr[i]       = 40 + Math.random() * 55;
+    metaMoveCool[i] = Math.random() * 90;  // stagger initial target picks
+  }
+  metaReady = true;
+}
+
+// ── P4 Infinite Squares ───────────────────────────────────────────────
+let sqZoomPhase = 0;   // accumulates each frame; mod log(ZOOM_RATIO) for seamless loop
+
+// ════════════════════════════════════════════════════════════════════
+// CANVAS RENDERING
+// ════════════════════════════════════════════════════════════════════
+function drawCanvas() {
+  const W  = canvas.width, H = canvas.height;
+  const cx = W / 2,       cy = H / 2;
+  const s  = state, d = derived;
+  const p  = s.activePattern;
+
+  // ── Advance per-frame animation offsets ──────────────────────────
+  n1off   += d.n1offMax;
+  n2off   += d.n2offMax;
+  n3off   += d.n3offMax;
+  patAngle += d.speed;
+
+  // ── Audio-reactive values (use smoothedAudio, not raw audioData) ────
+  // smoothedAudio rises fast on beats but decays slowly → no jarring jumps
+  const dimVal  = smoothedAudio[s.dim]                   / 100;
+  const dimVal1 = smoothedAudio[Math.min(s.dim + 1, 6)] / 100;
+  const aR      = smoothedAudio[1] / 100;
+  const aG      = smoothedAudio[3] / 100;
+  const aB      = smoothedAudio[2] / 100;
+
+  // ── Ease RGB colours (two-stage: smoothedAudio → easing → color) ────
+  // Double smoothing keeps colour transitions fluid even on loud transients
+  colorR += (aR * 255 - colorR) * d.easing;
+  colorG += (aG * 255 - colorG) * d.easing;
+  colorB += (aB * 255 - colorB) * d.easing;
+
+  const cr = Math.round(colorR * s.redOSC);
+  const cg = Math.round(colorG * s.greenOSC);
+  const cb = Math.round(colorB * s.blueOSC);
+  const al = d.transparency / 255;
+
+  // ── Smooth radii — ease toward audio target, rate tied to easing OSC ─
+  const RADIUS_EASE = clamp(d.easing * 1.4, 0.04, 0.18);
+  const targetOuterR = Math.max(8, map(dimVal,  0, 1, 11, d.diam));
+  const targetInnerR = Math.max(4, map(dimVal1, 0, 1, 5,  d.diam * 0.5));
+  smoothOuterR += (targetOuterR - smoothOuterR) * RADIUS_EASE;
+  smoothInnerR += (targetInnerR - smoothInnerR) * RADIUS_EASE;
+  const outerR  = smoothOuterR;
+  const innerR  = smoothInnerR;
+  const density = Math.round(d.density);
+
+  // ── Idle ──────────────────────────────────────────────────────────
+  if (p === 0) {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#333';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Select a pattern →', cx, cy);
+    return;
+  }
+
+  // ── Blackout ──────────────────────────────────────────────────────
+  if (p === 6) {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    return;
+  }
+
+  // ── Camera placeholder ────────────────────────────────────────────
+  if (p === 5) {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = '#080818';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#334';
+    ctx.font = '13px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('[ CAMERA — hardware only ]', cx, cy - 8);
+    ctx.fillStyle = '#222';
+    ctx.fillText('Connect a webcam to preview', cx, cy + 12);
+    return;
+  }
+
+  // ── Background fill (persistent trail, mimics Processing alpha fill) ─
+  ctx.globalCompositeOperation = 'source-over';
+  if (p === 2) {
+    // River: very dark navy — deep water
+    ctx.fillStyle = `rgba(0,4,18,${al * 0.82})`;
+  } else if (p === 3) {
+    // Metaballs: handled entirely inside drawMetaballs (full clear each frame)
+    ctx.fillStyle = `rgba(0,0,0,1)`;
+  } else if (p === 4) {
+    // Zoom squares: fast fade keeps squares sharp and punchy (rock feel)
+    ctx.fillStyle = `rgba(0,0,0,${clamp(al * 0.80 + 0.18, 0.35, 1)})`;
+  } else {
+    ctx.fillStyle = `rgba(0,0,0,${al * 0.85})`;
+  }
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Draw pattern (each function sets its own composite mode) ─────
+  if (p === 1) {
+    ctx.globalCompositeOperation = 'difference';
+    drawMoire(cx, cy, outerR, cr, cg, cb, al, density);
+    ctx.globalCompositeOperation = 'source-over';
+  } else if (p === 2) {
+    drawRiver(cx, cy, W, H, cr, cg, cb, al);
+  } else if (p === 3) {
+    drawMetaballs(cx, cy, W, H, cr, cg, cb, al);
+  } else if (p === 4) {
+    drawInfiniteSquares(cx, cy, W, H, cr, cg, cb, al);
+  }
+
+  ctx.globalCompositeOperation = 'source-over';
+
+  // ── BPM beat flash overlay ────────────────────────────────────────
+  if (beatFlash > 0.01) {
+    ctx.fillStyle = `rgba(255,255,255,${beatFlash * 0.13})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Pattern 1 — Moire (two counter-rotating grids of ellipses)
+// ────────────────────────────────────────────────────────────────────
+function drawMoire(cx, cy, outerR, cr, cg, cb, al, density) {
+  const ns = derived.noiseScale;
+
+  for (let layer = 0; layer < 2; layer++) {
+    const sign  = layer === 0 ? 1 : -1;
+    const phase = layer === 0 ? n1off : n2off;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(patAngle * sign + phase * 5);
+
+    for (let i = 1; i <= density; i++) {
+      const t    = i / density;
+      const r    = outerR * t;
+      // slight ellipse warp driven by the third noise offset
+      const rx   = r * (1 + 0.25 * Math.sin(n3off * 8 + i));
+      const ry   = r * (1 - 0.25 * Math.cos(n2off * 6 + i * 0.7));
+      const xOff = Math.sin(phase * 12 + i * 0.6) * ns * 0.08;
+      const yOff = Math.cos(phase * 10 + i * 0.8) * ns * 0.08;
+      const a    = al * (0.4 + 0.6 * t);
+
+      ctx.beginPath();
+      ctx.ellipse(xOff, yOff, Math.max(1, rx), Math.max(1, ry), 0, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${cr},${cg},${cb},${a})`;
+      ctx.lineWidth   = 1;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Pattern 2 — River (fluid particle flow, blue palette)
+// ────────────────────────────────────────────────────────────────────
+// Particles flow rightward following a sinusoidal "river channel"
+// that breathes and curves with the music. Three colour layers:
+//   Deep blue   → low-energy / background particles
+//   Cyan/white  → high-energy / surface sparkles
+//   Beat pulse  → brief bright ring on BPM hit
+// ────────────────────────────────────────────────────────────────────
+function drawRiver(cx, cy, W, H, cr, cg, cb, al) {
+  if (!riverReady) initRiver(W, H);
+
+  const bass  = smoothedAudio[1] / 100;
+  const mid   = smoothedAudio[3] / 100;
+  const high  = smoothedAudio[5] / 100;
+  const sub   = smoothedAudio[0] / 100;
+
+  // River channel: sinusoidal centerline that the particles follow
+  const chanAmp   = H * (0.18 + mid * 0.16);
+  const chanFreq  = 0.003 + mid * 0.003;
+  const chanShift = patAngle * 0.28 + n1off * 1.5;
+
+  const flowSpeed = 0.8 + mid * 2.2 + bass * 1.0;
+  const turbStr   = bass * 3.5;
+
+  // Spawn sparkle particles on high-freq hits
+  if (high > 0.45 && Math.random() < high * 0.7) {
+    // Overwrite a random dead slot with a sparkle near the channel
+    const sx   = Math.random() * W;
+    const sy   = cy + chanAmp * Math.sin(sx * chanFreq + chanShift) +
+                 (Math.random() - 0.5) * chanAmp * 0.4;
+    const slot = Math.floor(Math.random() * RIVER_MAX_P);
+    riverPx[slot]    = sx;
+    riverPy[slot]    = sy;
+    riverPvx[slot]   = 0.3 + Math.random() * 0.8;
+    riverPvy[slot]   = (Math.random() - 0.5) * 0.6;
+    riverPsz[slot]   = 0.5 + Math.random() * 1.0;
+    riverPbri[slot]  = 0.85 + Math.random() * 0.15;
+    riverPtype[slot] = 1;
+  }
+
+  ctx.globalCompositeOperation = 'source-over';
+
+  for (let i = 0; i < RIVER_MAX_P; i++) {
+    // River channel y at this particle's x
+    const chanY  = cy + chanAmp * Math.sin(riverPx[i] * chanFreq + chanShift);
+    const dyToChan = chanY - riverPy[i];
+
+    // Forces
+    riverPvx[i] += 0.12 * flowSpeed;
+    riverPvy[i] += dyToChan * 0.006 * (1 + mid * 1.5);  // channel attraction
+    riverPvx[i] += (Math.random() - 0.5) * turbStr * 0.4;
+    riverPvy[i] += (Math.random() - 0.5) * turbStr * 0.5;
+
+    // Drag
+    riverPvx[i] *= 0.94;
+    riverPvy[i] *= 0.90;
+
+    // Clamp velocity
+    riverPvx[i] = clamp(riverPvx[i], -8, 12);
+    riverPvy[i] = clamp(riverPvy[i], -6, 6);
+
+    riverPx[i] += riverPvx[i];
+    riverPy[i] += riverPvy[i];
+
+    // Recycle particle that drifts off-screen
+    if (riverPx[i] > W + 10 || riverPx[i] < -30 ||
+        riverPy[i] > H + 20 || riverPy[i] < -20) {
+      // Respawn at left edge, near channel
+      riverPx[i]    = -5 - Math.random() * 20;
+      riverPy[i]    = cy + chanAmp * Math.sin(0 * chanFreq + chanShift) +
+                      (Math.random() - 0.5) * chanAmp * 1.6;
+      riverPvx[i]   = 0.6 + Math.random() * 2.2;
+      riverPvy[i]   = (Math.random() - 0.5) * 0.7;
+      riverPsz[i]   = 0.8 + Math.random() * 2.5;
+      riverPbri[i]  = 0.15 + Math.random() * 0.75;
+      riverPtype[i] = Math.random() < 0.07 ? 1 : 0;
+    }
+
+    // Colour — sparkles: near-white cyan; main: deep blue → mid blue
+    const bri  = riverPbri[i];
+    const spd  = Math.abs(riverPvx[i]) / 8;   // 0-1 based on speed
+    const dist = Math.abs(riverPy[i] - cy) / (H * 0.5);  // 0=center, 1=edge
+
+    let rr, gg, bb;
+    if (riverPtype[i] === 1) {
+      // Sparkle: white → bright cyan
+      rr = Math.round(180 + bri * 75);
+      gg = Math.round(210 + bri * 45);
+      bb = 255;
+    } else {
+      // Main flow: deep navy → electric blue → cyan based on speed+brightness
+      rr = Math.round(cr * 0.15 + spd * 30  + bri * 20);
+      gg = Math.round(cg * 0.15 + spd * 80  + bri * 80 + 20);
+      bb = Math.round(cb * 0.15 + spd * 160 + bri * 120 + 100);
+    }
+
+    // Edge fade
+    const edgeFade = clamp((riverPx[i] + 10) / 40, 0, 1) *
+                     clamp((W + 10 - riverPx[i]) / 60, 0, 1) *
+                     clamp((riverPy[i] + 10) / 40, 0, 1) *
+                     clamp((H + 10 - riverPy[i]) / 60, 0, 1);
+
+    const alpha = al * bri * edgeFade * (riverPtype[i] === 1 ? 0.85 : 0.55);
+    const sz    = riverPsz[i] * (0.6 + spd * 0.8);
+
+    ctx.beginPath();
+    ctx.arc(riverPx[i], riverPy[i], Math.max(0.3, sz), 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${clamp(rr,0,255)},${clamp(gg,0,255)},${clamp(bb,0,255)},${alpha.toFixed(3)})`;
+    ctx.fill();
+  }
+
+  // BPM beat: radial pulse ring
+  if (beatFlash > 0.05) {
+    const pulseR = Math.max(W, H) * 0.55 * (1 - beatFlash * 0.3);
+    ctx.beginPath();
+    ctx.arc(cx, cy, pulseR, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(100,200,255,${al * beatFlash * 0.35})`;
+    ctx.lineWidth   = beatFlash * 6;
+    ctx.stroke();
+  }
+
+  // Soft channel glow line
+  if (mid > 0.1) {
+    ctx.beginPath();
+    ctx.moveTo(0, cy + chanAmp * Math.sin(0 * chanFreq + chanShift));
+    const steps = 60;
+    for (let s = 1; s <= steps; s++) {
+      const x = (s / steps) * W;
+      const y = cy + chanAmp * Math.sin(x * chanFreq + chanShift);
+      ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = `rgba(40,130,255,${al * mid * 0.18})`;
+    ctx.lineWidth   = 1.5 + mid * 3;
+    ctx.stroke();
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Pattern 3 — Metaballs (blob fusion, colour driven by audio)
+// ────────────────────────────────────────────────────────────────────
+// Uses an offscreen canvas + ctx.filter='blur(Npx) contrast(M)' technique:
+//   1. Draw white filled circles on black offscreen canvas
+//   2. drawImage to main canvas with blur+contrast filter applied
+//      → the contrast threshold creates the organic "merge when close" effect
+//   3. Colorize blobs using multiply blend with a gradient overlay
+// Blob count = density OSC, blob size = audio bands, speed = mid freq
+// ────────────────────────────────────────────────────────────────────
+function drawMetaballs(cx, cy, W, H, cr, cg, cb, al) {
+  if (!metaReady) initMeta(W, H);
+
+  // Re-create offscreen canvas if size changed
+  if (!metaOffscreen || metaOffscreen.width !== W || metaOffscreen.height !== H) {
+    metaOffscreen = document.createElement('canvas');
+    metaOffscreen.width  = W;
+    metaOffscreen.height = H;
+    metaOffCtx = metaOffscreen.getContext('2d');
+  }
+
+  const bass = smoothedAudio[1] / 100;
+  const mid  = smoothedAudio[3] / 100;
+  const high = smoothedAudio[5] / 100;
+
+  const nBlobs    = Math.max(3, Math.round(map(derived.density, 6, 20, 3, META_N)));
+  const baseBlobR = map(derived.diam, 11, canvas.width * 0.6, 28, 90);
+
+  // ── Slider-driven parameters ──────────────────────────────────────
+  // Ease Rate: slider 0→1 maps to 0.003–0.038 per-frame rate
+  const easeBase   = map(state.metaEaseOSC, 0, 1, 0.003, 0.038);
+  // Trigger Threshold: slider 0→1 maps to 0.05–0.60 energy level
+  const trigThresh = map(state.metaThreshOSC, 0, 1, 0.05, 0.60);
+  // Glow: slider 0→1 scales the additive glow brightness
+  const glowScale  = map(state.metaGlowOSC, 0, 1, 0.0, 1.8);
+  // Blob palette from hue slider — three gradient stops via HSL
+  const hue        = state.metaHueOSC;
+  const [r0,g0,b0] = hsl2rgb(hue,        0.95, 0.55);  // center
+  const [r1,g1,b1] = hsl2rgb(hue + 0.11, 0.90, 0.42);  // mid
+  const [r2,g2,b2] = hsl2rgb(hue + 0.22, 0.80, 0.48);  // edge
+
+  // Trigger band: same band the user selected for shutter/dim
+  const triggerVal = smoothedAudio[state.dim] / 100;   // 0–1
+
+  // Margin keeps targets away from canvas edges
+  const mX = W * 0.12, mY = H * 0.12;
+
+  // Helper: pick a new random target for blob i
+  function pickTarget(i) {
+    metaTargetX[i] = mX + Math.random() * (W - 2 * mX);
+    metaTargetY[i] = mY + Math.random() * (H - 2 * mY);
+  }
+
+  // Update blob positions + audio-reactive radii
+  for (let i = 0; i < nBlobs; i++) {
+    // ── Target assignment ─────────────────────────────────────────
+    metaMoveCool[i] -= 1;
+    if (metaMoveCool[i] <= 0) {
+      if (triggerVal > trigThresh) {
+        // Trigger band is active → pick a new destination
+        pickTarget(i);
+        // Louder = re-pick more often (30–180 frames at 60 fps ≈ 0.5–3 s)
+        metaMoveCool[i] = map(triggerVal, trigThresh, 1.0, 180, 30);
+      } else {
+        // Quiet: keep current target, check again in ~2 s
+        metaMoveCool[i] = 120;
+      }
+    }
+
+    // BPM beat: immediately scatter all blobs to new positions
+    if (beatFlash > 0.88 && i < nBlobs) {
+      pickTarget(i);
+      metaMoveCool[i] = 45;
+    }
+
+    // ── Slow easing toward target ────────────────────────────────
+    // Base rate from slider; trigger energy adds proportional boost
+    const easeRate = easeBase + triggerVal * easeBase;
+    metaBx[i] += (metaTargetX[i] - metaBx[i]) * easeRate;
+    metaBy[i] += (metaTargetY[i] - metaBy[i]) * easeRate;
+
+    // Radius: driven by corresponding audio band
+    metaBr[i] = baseBlobR * (0.7 + smoothedAudio[i % 7] / 100 * 0.8 + bass * 0.35);
+  }
+
+  // ── Render field on offscreen canvas ─────────────────────────────
+  metaOffCtx.fillStyle = '#000';
+  metaOffCtx.fillRect(0, 0, W, H);
+
+  for (let i = 0; i < nBlobs; i++) {
+    // Use radial gradient for softer field (blends better with blur)
+    const r  = metaBr[i];
+    const gd = metaOffCtx.createRadialGradient(metaBx[i], metaBy[i], 0,
+                                                metaBx[i], metaBy[i], r);
+    gd.addColorStop(0,   'rgba(255,255,255,1)');
+    gd.addColorStop(0.6, 'rgba(255,255,255,0.7)');
+    gd.addColorStop(1,   'rgba(0,0,0,0)');
+    metaOffCtx.fillStyle = gd;
+    metaOffCtx.beginPath();
+    metaOffCtx.arc(metaBx[i], metaBy[i], r, 0, Math.PI * 2);
+    metaOffCtx.fill();
+  }
+
+  // ── Composite to main canvas with blur+contrast filter ───────────
+  // blur merges nearby blobs → contrast thresholds → organic surface
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  const blurPx = Math.round(12 + baseBlobR * 0.12);
+  ctx.filter = `blur(${blurPx}px) contrast(20) brightness(1.1)`;
+  ctx.drawImage(metaOffscreen, 0, 0);
+  ctx.filter = 'none';
+
+  // ── Colour overlay via multiply blend ────────────────────────────
+  // White blobs × colour = colour; black background × colour = black
+  ctx.globalCompositeOperation = 'multiply';
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.75);
+  // Palette from hue slider, lightly tinted by user audio colour
+  const uMix = 0.20;
+  const gc0r = clamp(Math.round(r0 + cr * uMix), 0, 255);
+  const gc0g = clamp(Math.round(g0 + cg * uMix), 0, 255);
+  const gc0b = clamp(Math.round(b0 + cb * uMix), 0, 255);
+  const gc1r = clamp(Math.round(r1 + cr * uMix), 0, 255);
+  const gc1g = clamp(Math.round(g1 + cg * uMix), 0, 255);
+  const gc1b = clamp(Math.round(b1 + cb * uMix), 0, 255);
+  const gc2r = clamp(Math.round(r2 + cr * uMix), 0, 255);
+  const gc2g = clamp(Math.round(g2 + cg * uMix), 0, 255);
+  const gc2b = clamp(Math.round(b2 + cb * uMix), 0, 255);
+  grad.addColorStop(0,   `rgba(${gc0r},${gc0g},${gc0b},${al})`);
+  grad.addColorStop(0.5, `rgba(${gc1r},${gc1g},${gc1b},${al})`);
+  grad.addColorStop(1,   `rgba(${gc2r},${gc2g},${gc2b},${al})`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Glow pass: additive bright core of each blob ─────────────────
+  ctx.globalCompositeOperation = 'screen';
+  for (let i = 0; i < nBlobs; i++) {
+    const r   = metaBr[i] * 0.35;
+    const glow = ctx.createRadialGradient(metaBx[i], metaBy[i], 0,
+                                          metaBx[i], metaBy[i], r);
+    const gStr = al * glowScale * (0.20 + smoothedAudio[i % 7] / 100 * 0.42);
+    // Glow colour: lighter version of hue center, then fade out
+    const [gr, gg2, gb] = hsl2rgb(hue + i * 0.04, 0.85, 0.75);
+    glow.addColorStop(0,   `rgba(${gr},${gg2},${gb},${gStr.toFixed(3)})`);
+    glow.addColorStop(0.5, `rgba(${Math.round(gr*0.6)},${Math.round(gg2*0.6)},${Math.round(gb*0.6)},${(gStr*0.45).toFixed(3)})`);
+    glow.addColorStop(1,   'rgba(0,0,0,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(metaBx[i], metaBy[i], r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Pattern 4 — Infinite Zoom Squares (tunnel / feedback loop)
+// ────────────────────────────────────────────────────────────────────
+// A series of squares zoom continuously outward from the canvas centre,
+// creating an "infinite tunnel into the future" feedback feel.
+//   sqZoomPhase accumulates → mod log(ZOOM_RATIO) for seamless loop
+//   Bass        → zoom speed
+//   Mid         → per-level twist angle (rotation)
+//   High        → colour saturation / brightness flash
+//   Beat        → sudden zoom burst + outline flash
+// ────────────────────────────────────────────────────────────────────
+function drawInfiniteSquares(cx, cy, W, H, cr, cg, cb, al) {
+  const ZOOM_RATIO = 1.38;
+  const LOG_R      = Math.log(ZOOM_RATIO);
+
+  const bass  = smoothedAudio[1] / 100;
+  const mid   = smoothedAudio[3] / 100;
+  const high  = smoothedAudio[5] / 100;
+  const sub   = smoothedAudio[0] / 100;
+
+  // ── Zoom speed ────────────────────────────────────────────────────
+  // Design: near-still at silence, punchy zoom on bass/kick hits.
+  // zoomAudio combines sub-bass (kick impact) + bass (body).
+  const zoomAudio = sub * 0.4 + bass * 0.6;   // 0→1 weighted audio level
+
+  // Base: very slow constant drift (barely perceptible at silence).
+  // Audio: main driver — loud bass = 5× speed amplification.
+  // This makes the difference between quiet and loud clearly visible.
+  const zoomSpeed = derived.speed * 0.30
+                  + zoomAudio * derived.speed * 5.5
+                  + beatFlash * 0.022;
+  sqZoomPhase += zoomSpeed;
+
+  // Seamless phase modulo — keep phase in [0, LOG_R)
+  const phase  = sqZoomPhase % LOG_R;
+  const zoomBase = Math.exp(phase);  // 1 → ZOOM_RATIO, then wraps
+
+  // Twist: rotation per level — controlled by Twist Amt slider.
+  // When Rotation is OFF, twistPerLevel = 0 so all squares stay axis-aligned.
+  const twistScale    = map(state.sqTwistOSC, 0, 1, 0, 1.0);
+  const twistPerLevel = state.sqRotateOn
+    ? (derived.speed * 0.20 + mid * 0.30 * (1 + bass * 0.8)) * twistScale
+    : 0;
+  // Also freeze patAngle contribution when rotation is OFF
+  const rotBase = state.sqRotateOn ? patAngle * 0.15 : 0;
+
+  // Diam Max → scales the visible square range (small = tight tunnel, large = fills screen)
+  const diamScale = map(derived.diam, 11, canvas.width * 0.6, 0.30, 1.10);
+  const maxHalf   = Math.sqrt(W * W + H * H) * 0.65 * diamScale;
+  const minHalf   = 2;
+
+  // Density → number of visible levels (6 = sparse, 20 = dense stack)
+  const N_LEVELS_DYN = Math.round(map(derived.density, 6, 20, 8, 28));
+
+  ctx.globalCompositeOperation = 'source-over';
+
+  for (let k = 0; k < N_LEVELS_DYN; k++) {
+    // Each level's half-size
+    const half = minHalf * Math.pow(ZOOM_RATIO, k) * zoomBase;
+    if (half < 0.5 || half > maxHalf * 1.2) continue;
+
+    const t   = Math.min(1, half / maxHalf);  // 0=small/center, 1=large/edge
+    const rot = k * twistPerLevel + rotBase + n1off * (state.sqRotateOn ? (1 + k * 0.1) : 0);
+
+    // ── Colour: energy heat ramp ──────────────────────────────────
+    // Quiet: cool blue-white.  Loud bass: white → electric yellow → hot orange.
+    const heat = zoomAudio;
+    const rr = Math.round(lerp(160, 255, heat));
+    const gg = Math.round(lerp(200, lerp(255, 100, heat * 0.8), heat));
+    const bb = Math.round(lerp(255, lerp(255,  20, heat * 0.9), heat));
+    // Outer squares tinted by user audio colour
+    const rF = clamp(Math.round(lerp(rr, cr, t * 0.35)), 0, 255);
+    const gF = clamp(Math.round(lerp(gg, cg, t * 0.35)), 0, 255);
+    const bF = clamp(Math.round(lerp(bb, cb, t * 0.35)), 0, 255);
+
+    // ── Opacity: always readable, surges on bass ──────────────────
+    // Base 0.55 (inner) → 0.80 (outer), then audio adds up to +0.45
+    const alpha = clamp(al * (0.55 + t * 0.25 + heat * 0.45), 0, 1);
+
+    // ── Line width: bold even at rest, massive on bass hit ────────
+    const lw = 1.8 + t * 1.5 + bass * 6.0;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(rot);
+    ctx.beginPath();
+    ctx.rect(-half, -half, half * 2, half * 2);
+    ctx.strokeStyle = `rgba(${rF},${gF},${bF},${alpha.toFixed(3)})`;
+    ctx.lineWidth   = lw;
+    ctx.stroke();
+
+    // Inner 20% of squares get a semi-transparent fill on loud bass —
+    // creates a solid "compressed" core that punches hard.
+    if (t < 0.22 && bass > 0.45) {
+      ctx.fillStyle = `rgba(${rF},${gF},${bF},${(al * bass * 0.22).toFixed(3)})`;
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  // ── Full-screen bass flash — visible at loud rock levels ─────────
+  // Adds a brief bright veil on hard bass/kick hits for maximum impact.
+  if (zoomAudio > 0.65) {
+    const flashA = al * (zoomAudio - 0.65) * 0.55;
+    ctx.fillStyle = `rgba(255,240,200,${flashA.toFixed(3)})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // ── Beat flash: three concentric square bursts ────────────────────
+  if (beatFlash > 0.05) {
+    for (let f = 0; f < 3; f++) {
+      const flashHalf = maxHalf * (0.55 + f * 0.22 + beatFlash * 0.18);
+      const flashRot  = rotBase + f * 0.28;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(flashRot);
+      ctx.beginPath();
+      ctx.rect(-flashHalf, -flashHalf, flashHalf * 2, flashHalf * 2);
+      ctx.strokeStyle = `rgba(255,255,255,${(al * beatFlash * 0.88 / (f + 1)).toFixed(3)})`;
+      ctx.lineWidth   = beatFlash * 14 / (f * 0.7 + 1);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // Centre dot — pulses hard with sub-bass / kick
+  const dotR = 4 + sub * 18;
+  ctx.beginPath();
+  ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(255,255,255,${clamp(al * (0.75 + sub * 0.25), 0, 1).toFixed(3)})`;
+  ctx.fill();
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Patterns 2/3/4 — Concentric rotating rings (LEGACY — no longer used)
+//   Kept for reference only
+// ────────────────────────────────────────────────────────────────────
+function drawRings(cx, cy, outerR, innerR, cr, cg, cb, al, density, pattern) {
+  const span = Math.max(1, outerR - innerR);
+
+  for (let i = 0; i < density; i++) {
+    const t = i / (density - 1 || 1);
+    const r = innerR + span * t;
+    if (r < 1) continue;
+
+    // Gentle orbit offset so rings drift slightly (mimics Processing noise)
+    const ang  = patAngle * (1 + i * 0.04) + i * 0.28;
+    const orb  = r * 0.06;
+    const x    = cx + Math.cos(ang) * orb;
+    const y    = cy + Math.sin(ang) * orb;
+    const a    = al * (0.3 + 0.7 * (1 - t));   // inner rings more opaque
+
+    let strokeR, strokeG, strokeB;
+    if (pattern === 4) {
+      // P4 gray: use luminance only
+      const lum  = Math.round(0.299 * cr + 0.587 * cg + 0.114 * cb);
+      strokeR = strokeG = strokeB = lum;
+    } else if (pattern === 3) {
+      // P3 light: invert for contrast against light bg
+      strokeR = 255 - cr;
+      strokeG = 255 - cg;
+      strokeB = 255 - cb;
+    } else {
+      strokeR = cr; strokeG = cg; strokeB = cb;
+    }
+
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(${strokeR},${strokeG},${strokeB},${a})`;
+    ctx.lineWidth   = 1 + t * 0.5;
+    ctx.stroke();
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Pattern 4 — Jazz Ensemble
+//
+// Each of the 7 frequency bands maps to a distinct visual "voice",
+// all drawn simultaneously with difference blend — like a jazz band
+// where every instrument is visible at once.
+//
+// P4 JAZZ ENSEMBLE — v2
+// ─────────────────────────────────────────────────────────────────────
+//  Three core systems:
+//  1. SPRING-PHYSICS ELASTIC GEOMETRY
+//     Four mass-spring-dampers driven by bass/piano envelope followers.
+//     Each spring controls a different geometric deformation — producing
+//     the "Q弹" (bouncy, syncopated) feeling of funk bass & jazz piano.
+//  2. PARTICLE SYSTEM WITH TURBULENCE
+//     Up to 280 particles live in a pre-allocated pool.
+//     - Ambient: trickle of warm embers driven by high-freq (bands 5-6)
+//     - Transient EXPLOSION: when a sudden loud vocal/drum hit is detected,
+//       spawn a burst of "lipstick" hot-pink/magenta particles.
+//  3. HARD-CUT VISUAL STATE MACHINE
+//     jazzState cycles 0→3 on every 4 BPM beats (hard cut, no crossfade).
+//     Each state uses a different geometry topology.
+// ─────────────────────────────────────────────────────────────────────
+
+// Spring physics constants
+const SPRING_K    = 0.12;   // stiffness — bigger = snappier bounce
+const SPRING_DAMP = 0.72;   // damping — smaller = more oscillation
+
+function drawJazzEnsemble(cx, cy, cr, cg, cb, al) {
+  const screenMax = Math.min(canvas.width, canvas.height) * 0.45;
+  const maxR      = clamp(derived.diam * 0.52, 60, screenMax);
+  const dens      = derived.density;  // 6-20
+
+  // ── Audio reads (raw + smoothed) ─────────────────────────────────
+  const b0 = smoothedAudio[0] / 100;  // sub-bass / kick
+  const b1 = smoothedAudio[1] / 100;  // funk bass
+  const b2 = smoothedAudio[2] / 100;  // low-mid piano
+  const b3 = smoothedAudio[3] / 100;  // mid melody
+  const b4 = smoothedAudio[4] / 100;  // upper-mid
+  const b5 = smoothedAudio[5] / 100;  // presence / whistle / voice
+  const b6 = smoothedAudio[6] / 100;  // cymbal / brilliance
+
+  // ── SYSTEM 3: Hard-cut state machine ─────────────────────────────
+  // Detect rising edge of beatFlash (set by updateBPMBeat each beat)
+  if (beatFlash > 0.85 && jazzPrevBeatFlash <= 0.85) {
+    jazzBeatCount++;
+    // Switch state every 4 beats — hard cut, no lerp
+    if (jazzBeatCount % 4 === 0) {
+      jazzState = (jazzState + 1) % 4;
+    }
+  }
+  jazzPrevBeatFlash = beatFlash;
+
+  // ── SYSTEM 1: Spring physics ──────────────────────────────────────
+  // Spring targets driven by audio envelopes
+  const targets = [
+    b0 * 0.7 + b1 * 0.3,             // spring 0: kick + bass → outer ring radius
+    b1 * 0.5 + b2 * 0.5,             // spring 1: bass + piano → inner ellipse squeeze
+    b2 * 0.4 + b3 * 0.6,             // spring 2: piano voicing → arc span / rotation skew
+    b4 * 0.3 + b5 * 0.4 + b6 * 0.3, // spring 3: upper-mid + presence → spoke extension
+  ];
+
+  for (let i = 0; i < JAZZ_SPRINGS; i++) {
+    // Hooke's law: F = -k * displacement  +  damping
+    jazzSpringVel[i] += (targets[i] - jazzSpringPos[i]) * SPRING_K;
+    jazzSpringVel[i] *= SPRING_DAMP;
+    jazzSpringPos[i] += jazzSpringVel[i];
+    jazzSpringPos[i] = clamp(jazzSpringPos[i], 0, 1.25);  // allow slight overshoot
+  }
+  const sp0 = jazzSpringPos[0];  // 0-1+ elastic bass ring
+  const sp1 = jazzSpringPos[1];  // 0-1+ elastic ellipse squeeze
+  const sp2 = jazzSpringPos[2];  // 0-1+ piano arc
+  const sp3 = jazzSpringPos[3];  // 0-1+ high spoke
+
+  // ── SYSTEM 2: Particle system ─────────────────────────────────────
+
+  // Detect transient rising edge → explosion
+  const wasLow = jazzPrevTransient < 0.35;
+  jazzPrevTransient = transientLevel;
+  if (wasLow && transientLevel >= 0.35) {
+    // Lipstick burst — hot pink / electric red / vivid magenta
+    jazzSpawnParticles(cx, cy, Math.round(map(dens, 6, 20, 18, 45)), 1,
+      maxR * (0.018 + transientLevel * 0.032));
+  }
+
+  // Ambient high-freq trickle — warm orange embers, driven by bands 5-6
+  const trickleRate = (b5 * 0.65 + b6 * 0.35) * 0.55;
+  if (Math.random() < trickleRate) {
+    const ang = Math.random() * Math.PI * 2;
+    const r   = maxR * (0.25 + Math.random() * 0.45);
+    jazzSpawnParticles(
+      cx + Math.cos(ang) * r * 0.6,
+      cy + Math.sin(ang) * r * 0.6,
+      1, 0, maxR * 0.008 * (0.5 + b5));
+  }
+
+  // Update & draw particles
+  // Turbulence field: perlin-like drift based on b5+b6 and position
+  const turbStr = (b5 + b6) * 0.55 + 0.08;
+  for (let i = 0; i < JAZZ_MAX_P; i++) {
+    if (jazzPlife[i] <= 0) continue;
+
+    // Turbulence: rotate velocity slightly based on position (cheap swirl)
+    const tx = (jazzPx[i] - cx) / maxR;
+    const ty = (jazzPy[i] - cy) / maxR;
+    const swirl = turbStr * 0.04;
+    jazzPvx[i] += (-ty * swirl);
+    jazzPvy[i] += ( tx * swirl);
+    // Slight gravity / drag
+    jazzPvy[i] += 0.012;
+    jazzPvx[i] *= 0.97;
+    jazzPvy[i] *= 0.97;
+
+    jazzPx[i] += jazzPvx[i];
+    jazzPy[i] += jazzPvy[i];
+    jazzPlife[i] -= jazzPtype[i] === 1 ? 0.022 : 0.016;  // lipstick fades faster
+
+    const life = Math.max(0, jazzPlife[i]);
+    const sz   = jazzPtype[i] === 1
+      ? (1.5 + (1 - life) * 2.5)    // lipstick: grows then fades
+      : (0.8 + life * 1.2);          // ember: shrinks over time
+
+    ctx.beginPath();
+    ctx.arc(jazzPx[i], jazzPy[i], sz, 0, Math.PI * 2);
+
+    if (jazzPtype[i] === 1) {
+      // Lipstick palette: hot pink → magenta → electric red
+      const phase = 1 - life;
+      const rr = Math.round(255);
+      const gg = Math.round(map(phase, 0, 1, 10, 80));
+      const bb = Math.round(map(phase, 0, 1, 120, 30));
+      ctx.fillStyle = `rgba(${rr},${gg},${bb},${al * life * 0.88})`;
+    } else {
+      // Warm ember palette: yellow → amber → deep orange
+      const rr = 255;
+      const gg = Math.round(180 + life * 60);
+      const bb = Math.round(life * 50);
+      ctx.fillStyle = `rgba(${rr},${gg},${bb},${al * life * 0.65})`;
+    }
+    ctx.fill();
+  }
+
+  // ── STATE-DEPENDENT GEOMETRY ─────────────────────────────────────
+  // Four visual topologies — hard-cut on jazzState
+  // All use spring-physics values for elastic deformation.
+
+  // Colour helper — blend user colour with state-specific accent
+  const mkCol = (r, g, b, a) => `rgba(${r|0},${g|0},${b|0},${a.toFixed(3)})`;
+
+  // User colour weight (subtle tint toward jazz palette)
+  const uR = cr * 0.3, uG = cg * 0.25, uB = cb * 0.2;
+
+  if (jazzState === 0) {
+    // ── STATE 0: ELASTIC BASS RINGS ──────────────────────────────
+    // Spring-deformed concentric ellipses, axis ratio driven by sp0/sp1.
+    // Outer ring breathes with kick+bass, inner ring squeezes on piano attack.
+    const numRings = Math.max(2, Math.round(map(dens, 6, 20, 2, 5)));
+
+    for (let i = 0; i < numRings; i++) {
+      const frac  = i / numRings;
+      const r     = maxR * (0.15 + frac * 0.75) * (0.55 + sp0 * 0.55);
+      const sqzX  = 1.0 + sp1 * 0.5 - frac * 0.15;   // spring squeeze X axis
+      const sqzY  = 1.0 - sp1 * 0.35 + frac * 0.10;  // spring squeeze Y axis
+      const rot   = patAngle * (0.2 + frac * 0.35) + n1off * (1 + i * 0.4);
+      const alpha = al * (0.55 - frac * 0.12 + sp0 * 0.30);
+      const lw    = 1.0 + sp0 * 3.5 * (1 - frac * 0.5);
+
+      // Colour: warm amber (state 0), modulated by ring index
+      const rr = lerp(uR + 220, uR + 180, frac);
+      const gg = lerp(uG + 100, uG + 60,  frac);
+      const bb = lerp(uB + 10,  uB + 40,  frac);
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(rot);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, Math.max(4, r * sqzX), Math.max(4, r * sqzY), 0, 0, Math.PI * 2);
+      ctx.strokeStyle = mkCol(clamp(rr, 0, 255), clamp(gg, 0, 255), clamp(bb, 0, 255), alpha);
+      ctx.lineWidth   = lw;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Accent: small pulse disc at centre on high spring overshoot
+    if (sp0 > 0.8) {
+      const pulseR = maxR * 0.06 * (sp0 - 0.8) * 5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, pulseR, 0, Math.PI * 2);
+      ctx.strokeStyle = mkCol(255, 200, 60, al * (sp0 - 0.8) * 1.5);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+  } else if (jazzState === 1) {
+    // ── STATE 1: ELASTIC PIANO SPOKES ────────────────────────────
+    // Radial spoke system — sp2 drives spoke length (piano comping).
+    // Spokes snap outward on chord hit, spring back slowly.
+    const numSpokes = Math.max(6, Math.round(map(dens, 6, 20, 6, 20)));
+    const baseOff   = patAngle * 0.8 + n2off;
+    const innerFrac = 0.08 + sp1 * 0.06;
+    const outerFrac = 0.18 + sp2 * 0.65;  // spring-driven length
+
+    for (let i = 0; i < numSpokes; i++) {
+      const ang    = baseOff + (i / numSpokes) * Math.PI * 2;
+      const phase  = i / numSpokes;
+      const jitter = (Math.sin(patAngle * 3 + phase * 7 + n3off * 4) * 0.5 + 0.5) * sp2 * 0.18;
+      const rInner = maxR * innerFrac;
+      const rOuter = maxR * (outerFrac + jitter);
+
+      // Colour: cool electric blue → teal → white for piano
+      const rr = lerp(uR + 60,  uR + 200, phase);
+      const gg = lerp(uG + 180, uG + 220, phase);
+      const bb = lerp(uB + 240, uB + 180, phase);
+      const alpha = al * (0.30 + sp2 * 0.50);
+
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(ang) * rInner, cy + Math.sin(ang) * rInner);
+      ctx.lineTo(cx + Math.cos(ang) * rOuter, cy + Math.sin(ang) * rOuter);
+      ctx.strokeStyle = mkCol(clamp(rr,0,255), clamp(gg,0,255), clamp(bb,0,255), alpha);
+      ctx.lineWidth   = 0.7 + sp2 * 2.2;
+      ctx.stroke();
+    }
+
+    // Rotating arc at mid-radius — piano comping rhythm
+    const arcR   = maxR * (0.30 + sp2 * 0.25);
+    const arcLen = Math.PI * (0.3 + sp2 * 0.5);
+    const arcRot = patAngle * 1.1;
+    const numArcs = Math.max(2, Math.round(map(dens, 6, 20, 2, 5)));
+    for (let i = 0; i < numArcs; i++) {
+      const start = arcRot + (i / numArcs) * Math.PI * 2 + n1off;
+      ctx.beginPath();
+      ctx.arc(cx, cy, arcR, start, start + arcLen);
+      ctx.strokeStyle = mkCol(clamp(uR+80,0,255), clamp(uG+210,0,255), clamp(uB+255,0,255),
+        al * (0.22 + sp2 * 0.45));
+      ctx.lineWidth = 1.2 + sp2 * 2.0;
+      ctx.stroke();
+    }
+
+  } else if (jazzState === 2) {
+    // ── STATE 2: ORBITING CONSTELLATION ──────────────────────────
+    // Points orbit the centre at different radii, trails drawn as arcs.
+    // sp0+sp1 modulate orbital radii; sp3 drives brightness/scatter.
+    const numOrbiters = Math.max(4, Math.round(map(dens, 6, 20, 4, 14)));
+    const now         = patAngle;
+
+    for (let i = 0; i < numOrbiters; i++) {
+      const phase   = (i / numOrbiters) * Math.PI * 2;
+      const rBase   = maxR * (0.12 + (i % 3) * 0.18);
+      const r       = rBase * (0.6 + sp0 * 0.6 + Math.sin(now * 2 + phase) * sp1 * 0.25);
+      const speed   = 0.4 + (i % 4) * 0.22;
+      const ang     = now * speed + phase + n3off * (1 + i * 0.5);
+      const px      = cx + Math.cos(ang) * r;
+      const py      = cy + Math.sin(ang) * r;
+
+      // Trail arc
+      const trailLen = Math.PI * (0.15 + sp3 * 0.30);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, ang - trailLen, ang);
+      const rr = lerp(uR + 255, uR + 160, i / numOrbiters);
+      const gg = lerp(uG + 80,  uG + 230, i / numOrbiters);
+      const bb = lerp(uB + 180, uB + 80,  i / numOrbiters);
+      ctx.strokeStyle = mkCol(clamp(rr,0,255), clamp(gg,0,255), clamp(bb,0,255),
+        al * (0.20 + sp0 * 0.50));
+      ctx.lineWidth = 1.0 + sp3 * 2.0;
+      ctx.stroke();
+
+      // Dot at orbit head
+      ctx.beginPath();
+      ctx.arc(px, py, 1.5 + sp3 * 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = mkCol(clamp(rr,0,255), clamp(gg,0,255), clamp(bb,0,255),
+        al * (0.55 + sp3 * 0.40));
+      ctx.fill();
+    }
+
+  } else {
+    // ── STATE 3: GRID CHAOS ───────────────────────────────────────
+    // Rectangular grid of dots, positions displaced by spring physics.
+    // sp0 drives radial displacement, sp3 drives angular scatter.
+    // Looks like the visual is "losing its mind" — neurotic comedy rhythm.
+    const gridN  = Math.max(3, Math.round(map(dens, 6, 20, 3, 7)));
+    const step   = maxR * 1.6 / gridN;
+    const origin = { x: cx - maxR * 0.8, y: cy - maxR * 0.8 };
+
+    for (let row = 0; row <= gridN; row++) {
+      for (let col = 0; col <= gridN; col++) {
+        const gx  = origin.x + col * step;
+        const gy  = origin.y + row * step;
+        const dx  = gx - cx;
+        const dy  = gy - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > maxR * 1.05) continue;
+
+        // Spring-based radial displacement — grid "breathes"
+        const displaceR = sp0 * step * 0.55 * (dist / maxR);
+        const displaceAng = patAngle * 1.5 + n2off + (row + col) * 0.8;
+        const ndx = dist > 0.01 ? dx / dist : 0;
+        const ndy = dist > 0.01 ? dy / dist : 0;
+
+        // Angular scatter from sp3 — dots swing sideways on high-freq hit
+        const sideAng = displaceAng * 1.3 + sp3 * 2.0;
+        const px = gx + ndx * displaceR + Math.cos(sideAng) * sp3 * step * 0.35;
+        const py = gy + ndy * displaceR + Math.sin(sideAng) * sp3 * step * 0.35;
+
+        const normDist = clamp(dist / maxR, 0, 1);
+        const rr = lerp(uR + 255, uR + 100, normDist);
+        const gg = lerp(uG + 40,  uG + 210, normDist);
+        const bb = lerp(uB + 200, uB + 50,  normDist);
+        const sz = 1.5 + sp0 * 2.5 + (1 - normDist) * 1.5;
+        const alpha = al * (0.40 + sp0 * 0.45 + sp3 * 0.20) * (0.5 + (1 - normDist) * 0.5);
+
+        ctx.beginPath();
+        ctx.arc(px, py, sz, 0, Math.PI * 2);
+        ctx.fillStyle = mkCol(clamp(rr,0,255), clamp(gg,0,255), clamp(bb,0,255), alpha);
+        ctx.fill();
+      }
+    }
+
+    // Connecting lines between near neighbours — visual noise web
+    if (sp3 > 0.3) {
+      const lineAlpha = al * (sp3 - 0.3) * 0.5;
+      const numLines  = Math.round(map(dens, 6, 20, 4, 12));
+      for (let i = 0; i < numLines; i++) {
+        const ang1 = patAngle * 2.1 + (i / numLines) * Math.PI * 2 + n1off * 3;
+        const ang2 = ang1 + Math.PI * (0.3 + sp3 * 0.4);
+        const r1   = maxR * (0.3 + sp0 * 0.5);
+        const r2   = maxR * (0.15 + sp1 * 0.4);
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(ang1) * r1, cy + Math.sin(ang1) * r1);
+        ctx.lineTo(cx + Math.cos(ang2) * r2, cy + Math.sin(ang2) * r2);
+        ctx.strokeStyle = mkCol(clamp(uR+220,0,255), clamp(uG+80,0,255), clamp(uB+180,0,255),
+          lineAlpha);
+        ctx.lineWidth = 0.6 + sp3 * 1.5;
+        ctx.stroke();
+      }
+    }
+  }
+
+  // ── Cymbal shimmer overlay — all states ──────────────────────────
+  // Band 6 (cymbal / brilliance) adds a brief radial flash ring
+  if (b6 > 0.15) {
+    const numShimmer = Math.max(16, Math.round(map(dens, 6, 20, 16, 40)));
+    const shimmerR   = maxR * (0.20 + sp3 * 0.30);
+    const shimmerRot = patAngle * 3.5 + n2off * 2.5;
+    const shimOuter  = shimmerR + maxR * 0.025 * b6 * (1 + sp3);
+
+    for (let i = 0; i < numShimmer; i++) {
+      const ang = shimmerRot + (i / numShimmer) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(ang) * shimmerR,  cy + Math.sin(ang) * shimmerR);
+      ctx.lineTo(cx + Math.cos(ang) * shimOuter, cy + Math.sin(ang) * shimOuter);
+      ctx.strokeStyle = `rgba(255,248,220,${al * b6 * 0.75})`;
+      ctx.lineWidth   = 0.4;
+      ctx.stroke();
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// STEP 4 — AUTO PAN/TILT SWEEP
+// ════════════════════════════════════════════════════════════════════
+function updateAutoPanTil() {
+  const spd = derived.speed * 40;   // sweep speed scales with pattern speed
+
+  if (state.panAutoButton) {
+    autoPanAngle += spd;
+    const t = (Math.sin(autoPanAngle) + 1) / 2;  // 0..1
+    const pan = state.autoPanMinOSC + (state.autoPanMaxOSC - state.autoPanMinOSC) * t;
+    state.panOSC = pan;
+    const el = $('panOSC');
+    if (el) {
+      el.value = pan;
+      const lbl = $('val-panOSC');
+      if (lbl) lbl.textContent = pan.toFixed(2);
+    }
+  }
+
+  if (state.tilAutoButton) {
+    autoTilAngle += spd * 0.73;    // different phase to pan
+    const t = (Math.sin(autoTilAngle) + 1) / 2;
+    const til = state.autoTilMinOSC + (state.autoTilMaxOSC - state.autoTilMinOSC) * t;
+    state.tilOSC = til;
+    const el = $('tilOSC');
+    if (el) {
+      el.value = til;
+      const lbl = $('val-tilOSC');
+      if (lbl) lbl.textContent = til.toFixed(2);
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// STEP 4 — BPM BEAT DETECTION
+// ════════════════════════════════════════════════════════════════════
+function updateBPMBeat(t) {
+  const beatInterval = 60 / state.bpm;
+
+  if (t - lastBeatTime >= beatInterval) {
+    // Snap to the beat grid (avoids drift)
+    lastBeatTime += Math.floor((t - lastBeatTime) / beatInterval) * beatInterval;
+    beatFlash = 1.0;
+  }
+  // Decay: slower than before — softer, more "breath-like" fall
+  beatFlash *= 0.88;
+  if (beatFlash < 0.005) beatFlash = 0;
+
+  $('info-bpm').textContent = Math.round(state.bpm);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// STEP 4 — ENHANCED DMX STRIP
+// ════════════════════════════════════════════════════════════════════
+function updateDMXStrip() {
+  const shutterVal = clamp(smoothedAudio[state.dim] / 100, 0, 1);
+
+  // ── Advance colour-wheel hue ─────────────────────────────────────
+  minimacHue = (minimacHue + 1 / (derived.minimacSpeed || 15)) % 1;
+  const hue = minimacHue * 360;
+
+  // ── Moving-head indicators ───────────────────────────────────────
+  for (let i = 0; i < 4; i++) {
+    const el = $('light-' + i);
+    if (!el) continue;
+    if (state.MiniMac) {
+      const bri = 18 + shutterVal * 44 + beatFlash * 22;
+      el.style.background  = `hsl(${hue},78%,${bri}%)`;
+      el.style.borderColor = `hsl(${hue},78%,${Math.min(90, bri + 22)}%)`;
+      el.style.color       = `hsl(${hue},78%,${Math.min(90, bri + 22)}%)`;
+      el.classList.add('on');
+    } else {
+      el.style.background  = '#111';
+      el.style.borderColor = '#333';
+      el.style.color       = 'transparent';
+      el.classList.remove('on');
+    }
+  }
+
+  // ── LED bar indicators ───────────────────────────────────────────
+  // ledSpeedOSC controls how quickly LED colours chase the audio target.
+  // High speed → instant response. Low speed → slow colour trailing.
+  const ledRate = map(derived.ledSpeed, 31, 2, 0.03, 0.95);
+  const bf      = beatFlash * 35;
+  const tgtR    = Math.min(255, clamp(map(smoothedAudio[1],30,100,0,255),0,255) * state.redLEDOSC   + bf);
+  const tgtG    = Math.min(255, clamp(map(smoothedAudio[3],30,100,0,255),0,255) * state.greenLEDOSC + bf);
+  const tgtB    = Math.min(255, clamp(map(smoothedAudio[2],30,100,0,255),0,255) * state.blueLEDOSC  + bf);
+  ledRs += (tgtR - ledRs) * ledRate;
+  ledGs += (tgtG - ledGs) * ledRate;
+  ledBs += (tgtB - ledBs) * ledRate;
+  const ledR = Math.round(ledRs), ledG = Math.round(ledGs), ledB = Math.round(ledBs);
+
+  for (let i = 0; i < 6; i++) {
+    const el = $('led-' + i);
+    if (!el) continue;
+    if (state.ledButton) {
+      el.style.background  = `rgb(${ledR},${ledG},${ledB})`;
+      el.style.borderColor = `rgb(${Math.min(255,ledR+30)},${Math.min(255,ledG+30)},${Math.min(255,ledB+30)})`;
+      el.style.color       = el.style.background;
+      el.classList.add('on');
+    } else {
+      el.style.background  = '#111';
+      el.style.borderColor = '#333';
+      el.style.color       = 'transparent';
+      el.classList.remove('on');
+    }
+  }
+
+  // ── Pan / Tilt numeric readout ───────────────────────────────────
+  $('dmx-pan').textContent  = Math.round(map(state.panOSC, 0,1, 151, 255));
+  $('dmx-tilt').textContent = Math.round(map(state.tilOSC, 0,1, 181, 255));
+}
+
+// ════════════════════════════════════════════════════════════════════
+// STEP 4 — PAN / TILT MINI-CANVAS (top-view fixture map)
+// ════════════════════════════════════════════════════════════════════
+const ptCanvas = $('pt-canvas');
+const ptCtx    = ptCanvas ? ptCanvas.getContext('2d') : null;
+
+function drawPTCanvas() {
+  if (!ptCtx) return;
+  const W = ptCanvas.width, H = ptCanvas.height;
+  const margin = 8;
+
+  ptCtx.fillStyle = '#080808';
+  ptCtx.fillRect(0, 0, W, H);
+
+  // Grid lines
+  ptCtx.strokeStyle = '#1e1e1e';
+  ptCtx.lineWidth = 0.5;
+  for (let i = 1; i < 4; i++) {
+    const x = W / 4 * i;
+    ptCtx.beginPath(); ptCtx.moveTo(x,0); ptCtx.lineTo(x,H); ptCtx.stroke();
+  }
+  for (let i = 1; i < 3; i++) {
+    const y = H / 3 * i;
+    ptCtx.beginPath(); ptCtx.moveTo(0,y); ptCtx.lineTo(W,y); ptCtx.stroke();
+  }
+
+  // Labels
+  ptCtx.fillStyle = '#333';
+  ptCtx.font = '7px monospace';
+  ptCtx.textAlign = 'left';
+  ptCtx.fillText('PAN →', 2, H - 2);
+
+  // 4 fixture dots — same pan, slightly spread tilt offsets to distinguish
+  const hue     = minimacHue * 360;
+  const brightness = state.MiniMac ? (18 + (smoothedAudio[state.dim]/100) * 44) : 14;
+  const col     = state.MiniMac
+    ? `hsl(${hue},78%,${brightness}%)`
+    : '#2a2a2a';
+
+  const panX  = margin + (state.panOSC)  * (W - margin * 2);
+  const tilYC = margin + (1 - state.tilOSC) * (H - margin * 2);
+
+  const offsets = [-6, -2, 2, 6]; // slight spread on tilt axis
+  for (let i = 0; i < 4; i++) {
+    const x = panX;
+    const y = clamp(tilYC + offsets[i], margin, H - margin);
+    ptCtx.beginPath();
+    ptCtx.arc(x, y, 3.5, 0, Math.PI * 2);
+    ptCtx.fillStyle = col;
+    ptCtx.fill();
+    if (state.MiniMac && beatFlash > 0.1) {
+      ptCtx.beginPath();
+      ptCtx.arc(x, y, 3.5 + beatFlash * 4, 0, Math.PI * 2);
+      ptCtx.strokeStyle = `rgba(255,255,255,${beatFlash * 0.4})`;
+      ptCtx.lineWidth = 0.8;
+      ptCtx.stroke();
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// MAIN LOOP
+// ════════════════════════════════════════════════════════════════════
+let frameCount = 0;
+
+function loop(ts) {
+  const t = ts / 1000;
+  frameCount++;
+
+  // BPM sync: override light speeds before derived values are consumed
+  if (state.bpmSyncEnabled) {
+    const fpb = Math.max(1, Math.round(60 / state.bpm * 60));
+    derived.minimacSpeed = fpb;
+    derived.ledSpeed     = fpb;
+  }
+
+  updateAudio(t);
+  updateSmoothedAudio();  // attack/release envelope on raw audio → smoothedAudio[]
+  updateTransient();      // spike detector for P4 Jazz centre jitter
+  updateDerived();
+  updateBPMBeat(t);       // beat detection → beatFlash, header BPM
+  updateAutoPanTil();     // sinusoidal pan/tilt sweep when auto is on
+  drawCanvas();           // pattern render + beat-flash overlay
+  updateAudioBars();
+  updateDMXStrip();       // light indicators with hue cycle + beat boost
+  drawPTCanvas();         // pan/tilt fixture position mini-map
+  updateStatusOverlay();
+
+  tickFPS();
+  requestAnimationFrame(loop);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════════════════════════
+refreshPatternButtons();
+refreshDimButtons();
+refreshAudioBarHighlight();
+updateColorPreviews();
+updateStatusOverlay();
+$('info-bpm').textContent = Math.round(state.bpm);
+$('bpm-number').textContent = Math.round(state.bpm);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

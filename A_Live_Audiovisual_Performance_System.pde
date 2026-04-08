@@ -31,20 +31,6 @@ Add list of functions into TouchOSC
 
 */
 
-//add more controlable parameters into TouchOSC(noise scale, easing)
-
-
-//Change some vaule of LEDs and moving lights
-//change the micSen vaule back to 1.
-
-//fixed the visual running speed, don't put the code into draw loop,put it into the condition//
-
-/*try using PGraphics to store the visual as image, 
-then switch different images(But slow down the running speed).*/
-//add button in TouchOSC to switch patterns.
-//Test useing the same color theme for LEDS and visual
-//add TouchOSC
-
 import dmxP512.*;
 import processing.serial.*;
 
@@ -58,115 +44,51 @@ import ddf.minim.ugens.*;
 import processing.net.*;
 import oscP5.*;
 import netP5.*;
+import java.net.InetAddress;
 
 import processing.video.*;
 
 OscP5 oscP5;
 OscMessage theMessage;
 NetAddress receiveAddr;
-//make a array to store the OSC addresses of faders and buttons, TouchOSC be able to receive the message from Processing///////
 String[] oscAddr = {"/red","/green","/blue","/NoiseScale","/n1","/n2","/n3","/frameRate","/Easing","/diamMax","/transparency","/density",
                      "/pattern1","/pattern2","/pattern3","/pattern4","/liveCam","/patternOff","/MicSen","/redLED","/greenLED","/blueLED","/ledBar","/MiniMac",
                      "/Til","/Pan","/FrontL","/FrontR","/BackL","/BackR","/dotSizeMax","/cameraSpeed","/transparencyCam","/minimacSpeed","/ledSpeed","/til","/pan",
-                     "/tilButtonAuto","/panButtonAuto","/dim0","/dim1","/dim2","/AutoTilMin","/AutoTilMax","/AutoPanMin","/AutoPanMax","/colorMin","/colorMax"};
+                     "/tilButtonAuto","/panButtonAuto","/dim0","/dim1","/dim2","/AutoTilMin","/AutoTilMax","/AutoPanMin","/AutoPanMax","/colorMin","/colorMax",
+                     "/speed","/reloadConfig","/tap","/bpmSync","/saveCue","/loadCue","/cueSlot"};
+
+// IP display — shown on screen for 8 seconds at startup
+String localIP       = "unknown";
+boolean showIPOverlay = true;
+
+// Config variables — loaded from config.json at startup
+String cfgTouchoscIP     = "10.2.196.170";
+int    cfgOscSendPort    = 9100;
+int    cfgOscReceivePort = 12000;
+String cfgCameraName     = "Yinglian Camera";
+int    ledStartChannel   = 43;
+int    ledEndChannel     = 227;
+boolean configError      = false;
+String  configErrorMsg   = "";
 
 DmxP512 dmxOutput;
-int universeSize=512;
-//boolean DMXPRO=true;
-boolean DMXPRO=false;
-String DMXPRO_PORT="/dev/tty.usbserial-ENP08WE9"; 
-int DMXPRO_BAUDRATE=115000;
+int universeSize = 512;
+boolean DMXPRO = false;
+String DMXPRO_PORT = "/dev/tty.usbserial-ENP08WE9";
+int DMXPRO_BAUDRATE = 115000;
 
 Minim minim;
 AudioInput myAudio;
 FFT myAudioFFT;
-//AudioPlayer myAudio;
 
 
-//int myAudioRange = 11;
-//int myAudioMax = 100;
-//float myAudioAmp = 80;
-//float myAudioIndex = 0.25;
-//float myAudioIndexAmp = myAudioIndex;
-//float myAudioIndexStep = 0.45;
-
-//for modification of sound data
-//reference: https://www.youtube.com/watch?v=K0jClzkrlLM&list=PLjK4gQQgFJDt7Ll5obSaIrsR6jOs4yB8g&index=57&t=280s
-//int myAudioRange = 7; 
-//int myAudioMax = 100;
-//float myAudioAmp = 80;
-//float myAudioIndex = 0.05;
-//float myAudioIndexAmp = myAudioIndex;
-//float myAudioIndexStep = 0.25;
-//float[] myAudioData = new float[myAudioRange];
-
-//int myAudioRange = 7; 
-//int myAudioMax = 120;//100
-//float myAudioAmp = 95; //80
-//float myAudioIndex = 0.05;  //0.1,0.2，0.15
-//float myAudioIndexAmp = myAudioIndex;
-//float myAudioIndexStep = 0.4;//0.15
-//float[] myAudioData = new float[myAudioRange];
-
-////////this setting is good to most of the songs////////////
-//int myAudioRange = 7; 
-//int myAudioMax = 100;//100
-//float myAudioAmp = 40; //80
-//float myAudioIndex = 0.40;  //0.1,0.2，0.15
-//float myAudioIndexAmp = myAudioIndex;
-//float myAudioIndexStep = 0.3;//0.15
-//float[] myAudioData = new float[myAudioRange];
-
-
-int myAudioRange = 7; 
-int myAudioMax = 100;//100
-float myAudioAmp = 30; //80
-float myAudioIndex = 0.5;  //0.1,0.2，0.15
+int myAudioRange = 7;
+int myAudioMax = 100;
+float myAudioAmp = 30;
+float myAudioIndex = 0.5;
 float myAudioIndexAmp = myAudioIndex;
-float myAudioIndexStep = 0.75;//0.15
+float myAudioIndexStep = 0.75;
 float[] myAudioData = new float[myAudioRange];
-
-//keep this setting
-//int myAudioRange = 7; 
-//int myAudioMax = 100;//100
-//float myAudioAmp = 40; //80
-//float myAudioIndex = 0.2;  //0.1,0.2，0.15
-//float myAudioIndexAmp = myAudioIndex;
-//float myAudioIndexStep = 0.17;//0.15
-//float[] myAudioData = new float[myAudioRange];
-
-
-//int myAudioRange = 7; 
-//int myAudioMax = 100;//100
-//float myAudioAmp = 70; //80
-//float myAudioIndex = 0.35;  //0.1,0.2，0.15
-//float myAudioIndexAmp = myAudioIndex;
-//float myAudioIndexStep = 0.45;//0.15
-//float[] myAudioData = new float[myAudioRange];
-
-//int myAudioRange = 24; 
-//int myAudioMax = 100;//100
-//float myAudioAmp = 40; //80
-//float myAudioIndex = 0.5;  //0.1,0.2，0.15
-//float myAudioIndexAmp = myAudioIndex;
-//float myAudioIndexStep = 0.25;//0.15
-//float[] myAudioData = new float[myAudioRange];
-
-//int myAudioRange = 5;
-//int myAudioMax = 100;
-//float myAudioAmp = 120;
-//float myAudioIndex = 0.05;
-//float myAudioIndexAmp = myAudioIndex;
-//float myAudioIndexStep = 0.15;
-//float[] myAudioData = new float[myAudioRange];
-
-//int myAudioRange = 7; 
-//int myAudioMax = 100;
-//float myAudioAmp = 120;
-//float myAudioIndex = 0.15;
-//float myAudioIndexAmp = myAudioIndex;
-//float myAudioIndexStep = 0.25;
-//float[] myAudioData = new float[myAudioRange];
 
 //different parameter for the moirePattern
 float n1off, n2off,n3off, n1,n2,n3,n1offOSC,n2offOSC,n3offOSC,n1offMax,n2offMax,n3offMax;
@@ -179,26 +101,21 @@ int mY = 0;
 //for pattern2 & 3
 float angle = 0.0;
 float speed = 0.005;
-float l0;
-float l1;
-float l00;
-float l11;
-float amount1;
-float amount3;
-float amount4;
-float amount11;
-float amount13;
-float amount14;
-float stroketr1;
-float stroketr11;
+float speedOSC = 0.25; // default maps to speed 0.005
+float outerRadius,      innerRadius;       // current eased circle radii
+float outerRadiusTarget, innerRadiusTarget; // target circle radii
+float amount1,  amount3,  amount4;          // current eased ring counts (per pattern 2/3/4)
+float amount11, amount13, amount14;         // target ring counts
+float strokeAlpha, strokeAlphaTarget;       // stroke opacity (current / target)
 float easing;
 float diam;
 float transparency;
 float density;
-//float easing = 0.08;
-float diff0, diff1,diffamount,diffamount3, diffamount4, 
-diffstroketr,diffRed,diffGreen,diffBlue, diffGray;
-float red2,green2,blue2,red22,green22,blue22,gray,gray2;
+float diff0, diff1, diffamount, diffamount3, diffamount4,
+      diffStrokeAlpha, diffColorR, diffColorG, diffColorB, diffGray;
+float colorR, colorG, colorB;              // current eased RGB working color
+float colorRTarget, colorGTarget, colorBTarget; // target RGB color
+float gray, grayTarget;
 
 /////////////for the miniMAC ////////////////////////////////////
 //dmx address of the first light
@@ -220,12 +137,8 @@ float redLEDOSC,greenLEDOSC,blueLEDOSC;
 float redOSC;
 float greenOSC;
 float blueOSC;
-float pattern1Button;
-float pattern2Button;
-float pattern3Button;
-float pattern4Button;
-float liveCamButton;
-float patternOffButton;
+// 0=idle, 1=pattern1, 2=pattern2, 3=pattern3, 4=pattern4, 5=liveCam, 6=off(blackout)
+int activePattern = 0;
 float MiniMac;
 float ledButton;
 float tilOSC;
@@ -239,13 +152,14 @@ float resetB;
 
 float micSen;
 float micSenOSC;
-//float micSen = 0.2;
 
 float tilAutoButton,panAutoButton;
 float minimacSpeedOSC,ledSpeedOSC,minimacSpeed,ledSpeed;
 
 /////////////////////////////////////for camera//////////////////////////////////////////////////////
-int videoScale =4;
+boolean cameraAvailable = false;
+boolean dmxAvailable    = false;
+int videoScale = 4;
 int cols, rows;
 Capture video;
 int x,y,loc;
@@ -264,6 +178,8 @@ float colorMin = 84;
 float colorMax = 131;
 float colorMinOSC,colorMaxOSC;
 
+boolean debug = false;  //set to true to enable console debug output
+
 PGraphics pa1;  //draw the pattern1(moirePattern)
 PGraphics pa2;  //draw the pattern2
 PGraphics pa3;  //draw the pattern3
@@ -273,12 +189,16 @@ PGraphics cameraV;  //call the camera
 
 
 void setup() {
-  //size(1920,1080);
-  //size(1600,1200);
-  //size(1280,800);
-  //fullScreen(JAVA2D,SPAN);
   fullScreen(2);
-  
+  loadConfig();
+
+  // Detect local IP so it can be shown on screen at startup
+  try {
+    localIP = InetAddress.getLocalHost().getHostAddress();
+  } catch(Exception e) {
+    localIP = "?";
+  }
+
   background(0);
   noCursor();
   pa1 = createGraphics(width,height);
@@ -290,86 +210,46 @@ void setup() {
   
   minim = new Minim(this);
   myAudio = minim.getLineIn(Minim.MONO);
-     
-  //myAudio.play();
-  
   myAudioFFT = new FFT(myAudio.bufferSize(), myAudio.sampleRate());
   myAudioFFT.linAverages(myAudioRange);
-  //myAudioFFT.window(FFT.GAUSS);
   myAudioFFT.window(FFT.NONE);
   
-  //DMX
-  dmxOutput=new DmxP512(this,universeSize,true);
-  
-  if(DMXPRO){
-    dmxOutput.setupDmxPro(DMXPRO_PORT,DMXPRO_BAUDRATE);
-  }
-  
-     //set the light when the program runs
-  for(int i=1; i<40; i+=10){
-     dmxOutput.set(i,0); //shutter close
-     //dmxOutput.set(i,237); //lampon
-  }
-  
-  //pan
-  for(int i=5; i<40;i+=10){
-     dmxOutput.set(i,150);
-  }
-  
-  //til
-  for(int i=7; i<40;i+=10){
-     dmxOutput.set(i,180);
-  }
-  
-  //  //pan
-  //for(int i=5; i<40;i+=10){
-  //   dmxOutput.set(i,128);
-  //}
-  
-  ////til
-  //for(int i=7; i<40;i+=10){
-  //   dmxOutput.set(i,128);
-  //}
-  
-  //for the LED Bar
-  for(int i=43; i<228;i++) {
-     dmxOutput.set(i,0);
+  // DMX — wrapped in try/catch so sketch runs without hardware connected
+  try {
+    dmxOutput = new DmxP512(this, universeSize, true);
+    if(DMXPRO) dmxOutput.setupDmxPro(DMXPRO_PORT, DMXPRO_BAUDRATE);
+    for(int i=shutter; i<shutter+40; i+=10) dmxOutput.set(i, 0);
+    for(int i=pan;     i<pan+40;     i+=10) dmxOutput.set(i, 150);
+    for(int i=til;     i<til+40;     i+=10) dmxOutput.set(i, 180);
+    for(int i=ledStartChannel; i<=ledEndChannel; i++) dmxOutput.set(i, 0);
+    dmxAvailable = true;
+  } catch(Exception e) {
+    println("DMX interface not available: " + e.getMessage());
   }
   
   noFill();
   stroke(255);
   strokeCap(CORNER);
-  //noCursor();
 
-  //set send OSC port
-   oscP5 = new OscP5(this,9100);
-   
-   /*set OSC receive port and ip address
-     set the receive port to 12000, the ip address will be the ip address for the control device,
-     if using the computer to run the UI, the ip address will be the computer ip,
-     if using iPad, the ip will be the iPad ip
-   */
-   //receiveAddr = new NetAddress("127.0.0.1", 12000);
-     //receiveAddr = new NetAddress("10.2.222.124", 12000);  
-      receiveAddr = new NetAddress("10.2.196.170", 12000);
+  // OSC — ports and IP loaded from config.json
+  oscP5 = new OscP5(this, cfgOscSendPort);
+  receiveAddr = new NetAddress(cfgTouchoscIP, cfgOscReceivePort);
 
-     //receiveAddr = new NetAddress("192.168.50.13", 12000);
-
-   
-// Initialize columns and rows
+  // Camera — wrapped in try/catch so sketch runs without camera connected
   cols = width / videoScale;
   rows = height / videoScale;
-  // Construct the Capture object
-  //String[] cameras = Capture.list();
-  //printArray(cameras);
-  video = new Capture(this, cols, rows);
-  video = new Capture(this, "Yinglian Camera");
-  video.start();
+  try {
+    video = new Capture(this, cfgCameraName);
+    video.start();
+    cameraAvailable = true;
+  } catch(Exception e) {
+    println("Camera not available: " + cfgCameraName);
+  }
   
 }
 
 void captureEvent(Capture video) {
-  video.read();
+  if(cameraAvailable) video.read();
 }
 
 void draw() {
@@ -385,6 +265,7 @@ void draw() {
     n3offMax = map(n3offOSC,0.0,1.0,0.0001,0.01);
     frameR = int(floor(map(frameROSC,0.0,1.0,31,2)));
     
+    speed = map(speedOSC,0,1,0.0005,0.02);
     easing = map(easingOSC,0,1,0.001,0.1);
     diam = map(diamOSC,0.0,1.0,11,width/5*3);
     transparency = map(transparencyOSC,0,1,0,255);
@@ -396,6 +277,9 @@ void draw() {
     
     minimacSpeed = int(floor(map(minimacSpeedOSC,0.0,1.0,31,2)));
     ledSpeed = int(floor(map(ledSpeedOSC,0.0,1.0,31,2)));
+
+    // BPM sync overrides the fader-based speed when enabled
+    if(bpmSyncEnabled) applyBPMSync();
     
 ////////////Using fader to select color in TouchOSC(But need to know the range number!!!)///
     colorMin = int(floor(map(colorMinOSC,0,1,24,150)));
@@ -411,17 +295,6 @@ void draw() {
        autoPanMin = floor(map(autoPanMinOSC,0,1,0,128));
        autoPanMax = floor(map(autoPanMaxOSC,0,1,129,255));
        
-       //autoTilMin = floor(map(autoTilMinOSC,0,1,0,255));
-       //autoTilMax = floor(map(autoTilMaxOSC,0,1,0,255));
-       
-       //autoPanMin = floor(map(autoPanMinOSC,0,1,0,255));
-       //autoPanMax = floor(map(autoPanMaxOSC,0,1,0,255));
-
-       //panAngle = floor(map(panOSC,0,1,0,255));
-       //tilAngle = floor(map(tilOSC,0,1,0,255));
-       
-       //degree = map(sin(radians(frameCount)),-1,1,50,500);
-       //degree = map(myAudioData[0],myAudioMax-30,myAudioMax,250,400);
        degree = map(myAudioData[dim+1],60,myAudioMax,250,2000);
 
        
@@ -443,92 +316,58 @@ void draw() {
        }
        
 
-////////////////Using the TouchOSC Buttons to Switch the patterns//////////////////            
-       if (pattern1Button ==1
-           && pattern2Button ==0 
-           && pattern3Button ==0 
-           && pattern4Button ==0
-           && patternOffButton ==0){
-             if(frameCount % frameR == 0){
-                moirePattern();
-            }
-                image(pa1,0,0);
-       } 
-     
-       if (pattern2Button == 1 
-           && pattern4Button == 0 
-           && pattern3Button == 0 
-           && pattern1Button == 0
-           && patternOffButton == 0){
-             pattern2();
-             image(pa2,0,0);
-       } 
-     
-     if(pattern3Button == 1 
-        && pattern4Button == 0 
-        && pattern2Button == 0 
-        && pattern1Button == 0
-        && patternOffButton == 0) {
-          pattern3();
-          image(pa3,0,0);
-       } 
-       
-     if(pattern4Button == 1 
-        && pattern3Button == 0 
-        && pattern2Button == 0 
-        && pattern1Button == 0
-        && patternOffButton == 0) {   
-          pattern4();
-          image(pa4,0,0);
-       } 
-       
-      if(liveCamButton == 1 
-        && pattern3Button == 0 
-        && pattern2Button == 0 
-        && pattern1Button == 0
-        && patternOffButton == 0) {   
-         liveCam();
-         image(cameraV,0,0);
-       } 
-       
-      if(patternOffButton == 1 ) {   
-          paOff.beginDraw();
-          //clear();
-          paOff.background(0);
-          //fill(0);
-          //rect(0,0,paOff.width,paOff.height);
-          paOff.endDraw();
-          image(paOff,0,0);
-       } 
-       
-     if(MiniMac == 1 ) { 
-       if(frameCount % minimacSpeed == 0){
-        setLight();
+////////////////Pattern selection — single activePattern state machine//////////////////
+     switch(activePattern) {
+       case 1:
+         if(frameCount % frameR == 0) moirePattern();
+         image(pa1, 0, 0);
+         break;
+       case 2:
+         pattern2();
+         image(pa2, 0, 0);
+         break;
+       case 3:
+         pattern3();
+         image(pa3, 0, 0);
+         break;
+       case 4:
+         pattern4();
+         image(pa4, 0, 0);
+         break;
+       case 5: // live camera
+         if(cameraAvailable) {
+           liveCam();
+           image(cameraV, 0, 0);
+         } else {
+           background(0);
+           fill(255, 80, 80);
+           textSize(24);
+           textAlign(CENTER, CENTER);
+           text("Camera not available: " + cfgCameraName, width/2, height/2);
+           noFill();
          }
-         
-       }else {
-        setBlackout();
+         break;
+       case 6: // blackout
+         paOff.beginDraw();
+         paOff.background(0);
+         paOff.endDraw();
+         image(paOff, 0, 0);
+         break;
+       // case 0 (idle): nothing drawn, last frame persists
+     }
+
+     if(dmxAvailable) {
+       if(MiniMac == 1) {
+         if(frameCount % minimacSpeed == 0) setLight();
+       } else {
+         setBlackout();
        }
-       
-     if(ledButton == 1 ) { 
-       
-       if(frameCount % ledSpeed == 0) {
-        setLEDs();
-         }
-         
-      }else {
-        setLEDOff ();
+       if(ledButton == 1) {
+         if(frameCount % ledSpeed == 0) setLEDs();
+       } else {
+         setLEDOff();
        }
-       //   if(clearButton ==1) {
-       //  bg.beginDraw();
-       //  bg.background(255);
-       //  bg.endDraw();
-       //  image(bg,0,0);
-       //} 
-     //if(pattern1Button ==0 && pattern2Button ==0 && pattern3Button ==0){
-     //  background(255);
-     //}
-     
+     }
      //////If the Reset button in TouchOSC is pressed(momentary),set all the value back to 0//////
      if(resetB == 1) {
        for(int i=0; i<oscAddr.length;i++){
@@ -539,7 +378,53 @@ void draw() {
        
      }
      
-     //Using the buttions in TouchOSC to select which band in FFT array will be used as a trigger to drive the dimmer or visuals//////         
+     // Startup IP overlay — shown for 8 seconds so you can check/update config.json
+     if(showIPOverlay) {
+       if(millis() < 8000) {
+         fill(0, 200);
+         noStroke();
+         rect(width/2 - 280, height/2 - 50, 560, 90, 10);
+         fill(255);
+         textSize(18);
+         textAlign(CENTER, CENTER);
+         text("Processing IP: " + localIP + "  (OSC send port: " + cfgOscSendPort + ")", width/2, height/2 - 18);
+         text("TouchOSC IP in config.json: " + cfgTouchoscIP, width/2, height/2 + 10);
+         textSize(13);
+         fill(180);
+         text("This message disappears after 8 seconds", width/2, height/2 + 34);
+         noFill();
+       } else {
+         showIPOverlay = false;
+       }
+     }
+
+     // BPM display (top-right corner when bpmSync is active)
+     if(bpmSyncEnabled) {
+       fill(0, 160, 255, 200);
+       textSize(16);
+       textAlign(RIGHT, TOP);
+       text("BPM: " + nf(bpm, 0, 1), width - 20, 20);
+       noFill();
+     }
+
+     // On-screen status warnings
+     if(configError || !dmxAvailable) {
+       textSize(20);
+       textAlign(LEFT, TOP);
+       int warningY = 20;
+       if(configError) {
+         fill(255, 60, 60);
+         text(configErrorMsg, 20, warningY);
+         warningY += 30;
+       }
+       if(!dmxAvailable) {
+         fill(255, 160, 0);
+         text("DMX interface not connected", 20, warningY);
+       }
+       noFill();
+     }
+
+     //Using the buttions in TouchOSC to select which band in FFT array will be used as a trigger to drive the dimmer or visuals//////
      if(dim0Button == 1 && dim1Button == 0 && dim2Button == 0) {
        dim = 1;
      }else if(dim1Button == 1 && dim0Button == 0 && dim2Button == 0) {
@@ -562,273 +447,265 @@ void stop() {
 /* incoming osc message are forwarded to the oscEvent method. */
 void oscEvent(OscMessage theOscMessage) {
 
-  /* print the address pattern and the typetag of the received OscMessage */
-  print("### received an osc message.");
-  print(" addrpattern: "+theOscMessage.addrPattern());
-  // // Integer, float, etc.
-  println(" typetag: "+theOscMessage.typetag());
+  if(debug) {
+    print("### received an osc message.");
+    print(" addrpattern: "+theOscMessage.addrPattern());
+    println(" typetag: "+theOscMessage.typetag());
+  }
 
   // Method 1: Using a switch to isolate and assign the values through the addrPattern
   switch(theOscMessage.addrPattern()){
     case "/red": //radial red in touchOSC
       redOSC = theOscMessage.get(0).floatValue();
-      println("Red: "+ redOSC);
+      if(debug) println("Red: "+ redOSC);
       break;
-      
+
     case "/blue": //radial blue in touchOSC
       blueOSC = theOscMessage.get(0).floatValue();
-      println("Blue: " + blueOSC);
+      if(debug) println("Blue: " + blueOSC);
       break;
-      
+
     case "/green": //radial green in touchOSC
       greenOSC = theOscMessage.get(0).floatValue();
-      println("Green: " + greenOSC);
+      if(debug) println("Green: " + greenOSC);
       break;
-      
+
      case "/redLED": //radial redLED in touchOSC
       redLEDOSC = theOscMessage.get(0).floatValue();
-      println("Red LED :" + redLEDOSC);
+      if(debug) println("Red LED :" + redLEDOSC);
       break;
-      
+
     case "/blueLED": //radial blueLED in touchOSC
       blueLEDOSC = theOscMessage.get(0).floatValue();
-      println("Blue LED: " + blueLEDOSC);
+      if(debug) println("Blue LED: " + blueLEDOSC);
       break;
-      
+
     case "/greenLED": //radial greenLED in touchOSC
       greenLEDOSC = theOscMessage.get(0).floatValue();
-      println("Green LED: " + greenLEDOSC);
+      if(debug) println("Green LED: " + greenLEDOSC);
       break;
-      
+
     case "/til": //fader Til in touchOSC
       tilOSC = theOscMessage.get(0).floatValue();
-      println("Til: " + tilAngle);
+      if(debug) println("Til: " + tilAngle);
       break;
-      
+
     case "/pan": //fader Pan in touchOSC
       panOSC = theOscMessage.get(0).floatValue();
-      println("Pan: " + panAngle);
+      if(debug) println("Pan: " + panAngle);
       break;
 
     case "/Easing": //fader Easing in touchOSC
       easingOSC = theOscMessage.get(0).floatValue();
-      println("Easing: " + easing);
+      if(debug) println("Easing: " + easing);
       break;
-      
+
     case "/NoiseScale": //fader NoiseScale in touchOSC
       noiseScaleOSC = theOscMessage.get(0).floatValue();
-      println("Noise Scale: " + noiseScale);
+      if(debug) println("Noise Scale: " + noiseScale);
       break;
-      
+
     case "/MicSen": //fader MicSen in touchOSC
       micSenOSC = theOscMessage.get(0).floatValue();
-      println("Mic Sen: " + micSen);
+      if(debug) println("Mic Sen: " + micSen);
       break;
-      
+
     case "/n1": //fader n1 in touchOSC
       n1offOSC = theOscMessage.get(0).floatValue();
-      println("N1 noise: " + n1offMax);
+      if(debug) println("N1 noise: " + n1offMax);
       break;
-      
+
     case "/n2": //fader n2 in touchOSC
       n2offOSC = theOscMessage.get(0).floatValue();
-      println("N2 noise: " + n2offMax);
+      if(debug) println("N2 noise: " + n2offMax);
       break;
-      
+
     case "/n3": //fader n3 in touchOSC
       n3offOSC = theOscMessage.get(0).floatValue();
-      println("N3 noise: " + n3offMax);
+      if(debug) println("N3 noise: " + n3offMax);
       break;
-      
+
     case "/frameRate": //fader frameRate in touchOSC
       frameROSC = theOscMessage.get(0).floatValue();
-      println("Frame Rate: " + 60/int(frameR));
+      if(debug) println("Frame Rate: " + 60/int(frameR));
       break;
 
     case "/diamMax": //fader diamMax in touchOSC
       diamOSC = theOscMessage.get(0).floatValue();
-      println("The max diam: " + diam);
+      if(debug) println("The max diam: " + diam);
       break;
 
-    case "/transparency": //fader diamMax in touchOSC
+    case "/transparency": //fader transparency in touchOSC
       transparencyOSC = theOscMessage.get(0).floatValue();
-      println("The transparency: " + transparency);
+      if(debug) println("The transparency: " + transparency);
       break;
-      
-    case "/density": //fader diamMax in touchOSC
+
+    case "/density": //fader density in touchOSC
       densityOSC = theOscMessage.get(0).floatValue();
-      println("The density: " + density);
+      if(debug) println("The density: " + density);
       break;
 
     case "/dotSizeMax": //fader dotSizeMax in touchOSC
       dotSizeMaxOSC = theOscMessage.get(0).floatValue();
-      println("The max dot size: " + dotSizeMax);
+      if(debug) println("The max dot size: " + dotSizeMax);
       break;
-      
+
     case "/cameraSpeed": //fader cameraSpeed in touchOSC
       easingCamOSC = theOscMessage.get(0).floatValue();
-      println("The easing of camera: " + easingCam);
+      if(debug) println("The easing of camera: " + easingCam);
       break;
 
     case "/transparencyCam": //fader transparencyCam in touchOSC
       transparencyCamOSC = theOscMessage.get(0).floatValue();
-      println("The transparency of camera: " + transparencyCam);
+      if(debug) println("The transparency of camera: " + transparencyCam);
       break;
-      
+
     case "/minimacSpeed": //fader minimacSpeed in touchOSC
       minimacSpeedOSC = theOscMessage.get(0).floatValue();
-      println("The speed of miniMac : " + int(60/minimacSpeed));
+      if(debug) println("The speed of miniMac : " + int(60/minimacSpeed));
       break;
-      
+
     case "/ledSpeed": //fader ledSpeed in touchOSC
       ledSpeedOSC = theOscMessage.get(0).floatValue();
-      println("The speed of LED Bars : " + int(60/ledSpeed));
+      if(debug) println("The speed of LED Bars : " + int(60/ledSpeed));
       break;
 
 ///////////////////////////////////////////////
     case "/AutoTilMin": //fader AutoTilMin in touchOSC
       autoTilMinOSC = theOscMessage.get(0).floatValue();
-      println("Auto Tilt Min number : " + autoTilMin);
+      if(debug) println("Auto Tilt Min number : " + autoTilMin);
       break;
 
-    case "/AutoTilMax": //fader AutoTilMin in touchOSC
+    case "/AutoTilMax": //fader AutoTilMax in touchOSC
       autoTilMaxOSC = theOscMessage.get(0).floatValue();
-      println("Auto Tilt Max number : " + autoTilMax);
+      if(debug) println("Auto Tilt Max number : " + autoTilMax);
       break;
-      
-    case "/AutoPanMin": //fader AutoTilMin in touchOSC
+
+    case "/AutoPanMin": //fader AutoPanMin in touchOSC
       autoPanMinOSC = theOscMessage.get(0).floatValue();
-      println("Auto Pan Min number : " + autoPanMin);
+      if(debug) println("Auto Pan Min number : " + autoPanMin);
       break;
-      
-    case "/AutoPanMax": //fader AutoTilMin in touchOSC
+
+    case "/AutoPanMax": //fader AutoPanMax in touchOSC
       autoPanMaxOSC = theOscMessage.get(0).floatValue();
-      println("Auto Pan Max number : " + autoPanMax);
+      if(debug) println("Auto Pan Max number : " + autoPanMax);
       break;
 
     case "/colorMin": //fader colorMin in touchOSC
       colorMinOSC = theOscMessage.get(0).floatValue();
       break;
-      
+
     case "/colorMax": //fader colorMax in touchOSC
       colorMaxOSC = theOscMessage.get(0).floatValue();
       break;
-      
+
+    case "/speed": //fader speed in touchOSC
+      speedOSC = theOscMessage.get(0).floatValue();
+      if(debug) println("Pattern speed: " + speed);
+      break;
+
+    case "/reloadConfig":
+      if(theOscMessage.get(0).floatValue() == 1) {
+        loadConfig();
+        if(debug) println("Config reloaded.");
+      }
+      break;
+
+    // ── BPM tap-tempo ────────────────────────────────────────────────────────
+    case "/tap":
+      if(theOscMessage.get(0).floatValue() == 1) recordTap();
+      break;
+
+    case "/bpmSync":
+      bpmSyncEnabled = (theOscMessage.get(0).floatValue() == 1);
+      if(debug) println("BPM sync: " + bpmSyncEnabled + "  BPM: " + nf(bpm,0,1));
+      break;
+
+    // ── Scene / cue system ───────────────────────────────────────────────────
+    case "/cueSlot":
+      cueSlot = constrain(int(theOscMessage.get(0).floatValue()), 1, 8);
+      if(debug) println("Cue slot: " + cueSlot);
+      break;
+
+    case "/saveCue":
+      if(theOscMessage.get(0).floatValue() == 1) saveCue(cueSlot);
+      break;
+
+    case "/loadCue":
+      if(theOscMessage.get(0).floatValue() == 1) loadCue(cueSlot);
+      break;
+
     default:
-      println("No type tags!");
+      if(debug) println("Unhandled OSC: " + theOscMessage.addrPattern());
       break;
       
   }
 
-  // Method 2: Using if statements // checkAddrPattern returns a boolean
-  
-  //button pattern1 in TouchOSC
-  if(theOscMessage.checkAddrPattern("/pattern1") == true){
-    pattern1Button = theOscMessage.get(0).floatValue();
-    if(pattern1Button == 1) {
-    println("pattern1 is on.");
-    } 
+  // Pattern selection — updates single activePattern state
+  if(theOscMessage.checkAddrPattern("/pattern1") && theOscMessage.get(0).floatValue() == 1) {
+    activePattern = 1;
+    if(debug) println("activePattern = 1");
   }
-  
-    //button pattern2 in TouchOSC
-    if(theOscMessage.checkAddrPattern("/pattern2") == true){
-    pattern2Button = theOscMessage.get(0).floatValue();
-    if(pattern2Button == 1) {
-    println("pattern2 is on.");
-    } 
+  if(theOscMessage.checkAddrPattern("/pattern2") && theOscMessage.get(0).floatValue() == 1) {
+    activePattern = 2;
+    if(debug) println("activePattern = 2");
   }
-    
-    //button pattern3 in TouchOSC
-    if(theOscMessage.checkAddrPattern("/pattern3") == true){
-    pattern3Button = theOscMessage.get(0).floatValue();
-    if(pattern3Button == 1) {
-    println("pattern3 is on.");
-    } 
+  if(theOscMessage.checkAddrPattern("/pattern3") && theOscMessage.get(0).floatValue() == 1) {
+    activePattern = 3;
+    if(debug) println("activePattern = 3");
   }
-  
-    //button pattern4 in TouchOSC
-    if(theOscMessage.checkAddrPattern("/pattern4") == true){
-    pattern4Button = theOscMessage.get(0).floatValue();
-    if(pattern4Button == 1) {
-    println("pattern4 is on.");
-    } 
+  if(theOscMessage.checkAddrPattern("/pattern4") && theOscMessage.get(0).floatValue() == 1) {
+    activePattern = 4;
+    if(debug) println("activePattern = 4");
   }
-  
-    //button liveCam in TouchOSC
-    if(theOscMessage.checkAddrPattern("/liveCam") == true){
-    liveCamButton = theOscMessage.get(0).floatValue();
-    if(liveCamButton == 1) {
-    println("Live Camera is on.");
-    } 
+  if(theOscMessage.checkAddrPattern("/liveCam") && theOscMessage.get(0).floatValue() == 1) {
+    activePattern = 5;
+    if(debug) println("activePattern = 5 (liveCam)");
   }
-    
-    //button patternOff in TouchOSC
-    if(theOscMessage.checkAddrPattern("/patternOff") == true){
-    patternOffButton = theOscMessage.get(0).floatValue();
-    if(patternOffButton == 1) {
-    println("pattern is off.");
-    } 
+  if(theOscMessage.checkAddrPattern("/patternOff") && theOscMessage.get(0).floatValue() == 1) {
+    activePattern = 6;
+    if(debug) println("activePattern = 6 (off)");
   }
-    
-    //button MiniMac in TouchOSC
-    if(theOscMessage.checkAddrPattern("/MiniMac") == true){
+
+  if(theOscMessage.checkAddrPattern("/MiniMac") == true){
     MiniMac = theOscMessage.get(0).floatValue();
-    if(MiniMac == 1) {
-    println("MiniMac is on.");
-    } 
+    if(debug && MiniMac == 1) println("MiniMac is on.");
   }
-  
-    //button ledBar in TouchOSC
-    if(theOscMessage.checkAddrPattern("/ledBar") == true){
-      ledButton = theOscMessage.get(0).floatValue();
-      if(ledButton == 1) {
-      println("LEDs is on.");
-      } 
-    }
-    
-    if(theOscMessage.checkAddrPattern("/resetButton") == true){
-      resetB = theOscMessage.get(0).floatValue();
-      if(resetB == 1) {
-        println("All set.");
-      } 
-    }
-    
-        //button tilButtonAuto in TouchOSC
-    if(theOscMessage.checkAddrPattern("/tilButtonAuto") == true){
-      tilAutoButton = theOscMessage.get(0).floatValue();
-      if(tilAutoButton == 1) {
-      println("Til auto function is on.");
-      } 
-    }
-    
-       //button panButtonAuto in TouchOSC
-    if(theOscMessage.checkAddrPattern("/panButtonAuto") == true){
-      panAutoButton = theOscMessage.get(0).floatValue();
-      if(panAutoButton == 1) {
-      println("Pan auto function is on.");
-      } 
-    }
-    
-    if(theOscMessage.checkAddrPattern("/dim0") == true){
-      dim0Button = theOscMessage.get(0).floatValue();
-      if(dim0Button == 1) {
-      println("Now using index 0 of myAudioData to trige the shutter on and off");
-      } 
-    }
-    
-    if(theOscMessage.checkAddrPattern("/dim1") == true){
-      dim1Button = theOscMessage.get(0).floatValue();
-      if(dim1Button == 1) {
-      println("Now using index 1 of myAudioData to trige the shutter on and off");
-      } 
-    }
-    
-    if(theOscMessage.checkAddrPattern("/dim2") == true){
-      dim2Button = theOscMessage.get(0).floatValue();
-      if(dim2Button == 1) {
-      println("Now using index 2 of myAudioData to trige the shutter on and off");
-      } 
-    }
+
+  if(theOscMessage.checkAddrPattern("/ledBar") == true){
+    ledButton = theOscMessage.get(0).floatValue();
+    if(debug && ledButton == 1) println("LEDs is on.");
+  }
+
+  if(theOscMessage.checkAddrPattern("/resetButton") == true){
+    resetB = theOscMessage.get(0).floatValue();
+    if(debug && resetB == 1) println("Reset triggered.");
+  }
+
+  if(theOscMessage.checkAddrPattern("/tilButtonAuto") == true){
+    tilAutoButton = theOscMessage.get(0).floatValue();
+    if(debug && tilAutoButton == 1) println("Til auto function is on.");
+  }
+
+  if(theOscMessage.checkAddrPattern("/panButtonAuto") == true){
+    panAutoButton = theOscMessage.get(0).floatValue();
+    if(debug && panAutoButton == 1) println("Pan auto function is on.");
+  }
+
+  if(theOscMessage.checkAddrPattern("/dim0") == true){
+    dim0Button = theOscMessage.get(0).floatValue();
+    if(debug && dim0Button == 1) println("Using myAudioData[0] for shutter trigger.");
+  }
+
+  if(theOscMessage.checkAddrPattern("/dim1") == true){
+    dim1Button = theOscMessage.get(0).floatValue();
+    if(debug && dim1Button == 1) println("Using myAudioData[1] for shutter trigger.");
+  }
+
+  if(theOscMessage.checkAddrPattern("/dim2") == true){
+    dim2Button = theOscMessage.get(0).floatValue();
+    if(debug && dim2Button == 1) println("Using myAudioData[2] for shutter trigger.");
+  }
     
  }
  
