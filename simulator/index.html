@@ -611,6 +611,16 @@
             <span class="ctrl-value" id="val-metaGlowOSC">0.60</span>
           </div>
 
+          <div class="section-title">P4 Zoom Controls</div>
+          <div class="btn-grid btn-grid-2">
+            <button class="osc-btn active" id="btn-sq-rotate">Rotation ON</button>
+          </div>
+          <div class="ctrl-row" style="margin-top:6px;">
+            <span class="ctrl-label">Twist Amt</span>
+            <input type="range" min="0" max="1" step="0.01" value="0.50" id="sqTwistOSC">
+            <span class="ctrl-value" id="val-sqTwistOSC">0.50</span>
+          </div>
+
         </div><!-- /tab-pattern -->
 
         <!-- ── COLOR tab ───────────────────────────────────────── -->
@@ -967,6 +977,9 @@ const state = {
   metaEaseOSC:    0.30,   // 0-1 → drift speed slow↔fast
   metaThreshOSC:  0.40,   // 0-1 → trigger energy threshold sensitive↔reluctant
   metaGlowOSC:    0.60,   // 0-1 → glow pass brightness
+  // P4 Zoom controls
+  sqRotateOn:     1,      // 1=rotation enabled, 0=squares stay axis-aligned
+  sqTwistOSC:     0.50,   // 0-1 → twist amount per level
   // Colors
   redOSC:         0.8,
   greenOSC:       0.3,
@@ -1235,6 +1248,7 @@ const faderIds = [
   'speedOSC','easingOSC','diamOSC','transparencyOSC','densityOSC',
   'noiseScaleOSC','n1offOSC','n2offOSC','n3offOSC',
   'metaHueOSC','metaEaseOSC','metaThreshOSC','metaGlowOSC',
+  'sqTwistOSC',
   'redOSC','greenOSC','blueOSC',
   'redLEDOSC','greenLEDOSC','blueLEDOSC',
   'colorMinOSC','colorMaxOSC',
@@ -1330,6 +1344,16 @@ wireToggle('btn-ledbar',  'ledButton');
 wireToggle('btn-panauto', 'panAutoButton');
 wireToggle('btn-tilauto', 'tilAutoButton');
 
+// P4 Rotation toggle
+const sqRotBtn = $('btn-sq-rotate');
+if (sqRotBtn) {
+  sqRotBtn.addEventListener('click', () => {
+    state.sqRotateOn = state.sqRotateOn ? 0 : 1;
+    sqRotBtn.textContent = state.sqRotateOn ? 'Rotation ON' : 'Rotation OFF';
+    sqRotBtn.classList.toggle('active', !!state.sqRotateOn);
+  });
+}
+
 $('btn-bpmsync').addEventListener('click', () => {
   state.bpmSyncEnabled = !state.bpmSyncEnabled;
   $('btn-bpmsync').classList.toggle('active-blue', state.bpmSyncEnabled);
@@ -1348,7 +1372,8 @@ $('btn-reset').addEventListener('click', () => {
   faderIds.forEach(id => {
     const defaults = { speedOSC:0.25, easingOSC:0.4, redOSC:0.8, greenOSC:0.3, blueOSC:0.9,
                        redLEDOSC:0.7, greenLEDOSC:0.2, blueLEDOSC:0.8, micSenOSC:0.5,
-                       metaHueOSC:0.72, metaEaseOSC:0.30, metaThreshOSC:0.40, metaGlowOSC:0.60 };
+                       metaHueOSC:0.72, metaEaseOSC:0.30, metaThreshOSC:0.40, metaGlowOSC:0.60,
+                       sqTwistOSC:0.50 };
     state[id] = defaults[id] ?? 0.5;
     const el = $(id);
     if (el) { el.value = state[id]; }
@@ -2133,7 +2158,6 @@ function drawMetaballs(cx, cy, W, H, cr, cg, cb, al) {
 function drawInfiniteSquares(cx, cy, W, H, cr, cg, cb, al) {
   const ZOOM_RATIO = 1.38;
   const LOG_R      = Math.log(ZOOM_RATIO);
-  const N_LEVELS   = 22;   // how many squares visible at once
 
   const bass  = smoothedAudio[1] / 100;
   const mid   = smoothedAudio[3] / 100;
@@ -2157,22 +2181,32 @@ function drawInfiniteSquares(cx, cy, W, H, cr, cg, cb, al) {
   const phase  = sqZoomPhase % LOG_R;
   const zoomBase = Math.exp(phase);  // 1 → ZOOM_RATIO, then wraps
 
-  // Twist: rotation per level — snaps hard on mid-freq hits
-  const twistPerLevel = derived.speed * 0.20 + mid * 0.30 * (1 + bass * 0.8);
+  // Twist: rotation per level — controlled by Twist Amt slider.
+  // When Rotation is OFF, twistPerLevel = 0 so all squares stay axis-aligned.
+  const twistScale    = map(state.sqTwistOSC, 0, 1, 0, 1.0);
+  const twistPerLevel = state.sqRotateOn
+    ? (derived.speed * 0.20 + mid * 0.30 * (1 + bass * 0.8)) * twistScale
+    : 0;
+  // Also freeze patAngle contribution when rotation is OFF
+  const rotBase = state.sqRotateOn ? patAngle * 0.15 : 0;
 
-  // Diagonal of canvas → max square half-diagonal needed
-  const maxHalf = Math.sqrt(W * W + H * H) * 0.65;
-  const minHalf = 2;
+  // Diam Max → scales the visible square range (small = tight tunnel, large = fills screen)
+  const diamScale = map(derived.diam, 11, canvas.width * 0.6, 0.30, 1.10);
+  const maxHalf   = Math.sqrt(W * W + H * H) * 0.65 * diamScale;
+  const minHalf   = 2;
+
+  // Density → number of visible levels (6 = sparse, 20 = dense stack)
+  const N_LEVELS_DYN = Math.round(map(derived.density, 6, 20, 8, 28));
 
   ctx.globalCompositeOperation = 'source-over';
 
-  for (let k = 0; k < N_LEVELS; k++) {
+  for (let k = 0; k < N_LEVELS_DYN; k++) {
     // Each level's half-size
     const half = minHalf * Math.pow(ZOOM_RATIO, k) * zoomBase;
     if (half < 0.5 || half > maxHalf * 1.2) continue;
 
     const t   = Math.min(1, half / maxHalf);  // 0=small/center, 1=large/edge
-    const rot = k * twistPerLevel + patAngle * 0.15 + n1off * (1 + k * 0.1);
+    const rot = k * twistPerLevel + rotBase + n1off * (state.sqRotateOn ? (1 + k * 0.1) : 0);
 
     // ── Colour: energy heat ramp ──────────────────────────────────
     // Quiet: cool blue-white.  Loud bass: white → electric yellow → hot orange.
@@ -2223,7 +2257,7 @@ function drawInfiniteSquares(cx, cy, W, H, cr, cg, cb, al) {
   if (beatFlash > 0.05) {
     for (let f = 0; f < 3; f++) {
       const flashHalf = maxHalf * (0.55 + f * 0.22 + beatFlash * 0.18);
-      const flashRot  = patAngle * 0.15 + f * 0.28;
+      const flashRot  = rotBase + f * 0.28;
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(flashRot);
